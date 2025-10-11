@@ -1,0 +1,11 @@
+[package]
+name = "bpfdis"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[profile.release]
+panic = "abort"
+overflow-checks = true
+debug-assertions = true

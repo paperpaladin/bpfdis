@@ -1,0 +1,3 @@
+target/
+t/corpus/*.o
+t/scratch/
