@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 mod elf;
+mod insn;
 
 use elf::Elf;
 use std::fmt::Write as _;
@@ -15,6 +16,8 @@ usage: bpfdis [MODE...] FILE
   -S, --sections    the ELF section table
   -y, --symbols     the symbol table
   -r, --relocs      relocations, resolved against the symbol table
+  -d, --disasm      every executable section, one line per instruction
+      --raw         with -d, also print the raw bytes of each instruction
   -A, --all         every mode above
   -h, --help        this text
 
@@ -26,11 +29,13 @@ struct Modes {
     sections: bool,
     symbols: bool,
     relocs: bool,
+    disasm: bool,
+    raw: bool,
 }
 
 impl Modes {
     fn any(&self) -> bool {
-        self.sections || self.symbols || self.relocs
+        self.sections || self.symbols || self.relocs || self.disasm
     }
 }
 
@@ -43,10 +48,13 @@ fn main() -> ExitCode {
             "-S" | "--sections" => m.sections = true,
             "-y" | "--symbols" => m.symbols = true,
             "-r" | "--relocs" => m.relocs = true,
+            "-d" | "--disasm" => m.disasm = true,
+            "--raw" => m.raw = true,
             "-A" | "--all" => {
                 m.sections = true;
                 m.symbols = true;
                 m.relocs = true;
+                m.disasm = true;
             }
             "-h" | "--help" => {
                 print!("{}", USAGE);
@@ -103,6 +111,9 @@ fn main() -> ExitCode {
     }
     if m.relocs {
         print_relocs(&mut o, &e);
+    }
+    if m.disasm {
+        print_disasm(&mut o, &e, m.raw);
     }
     emit(&o);
     ExitCode::from(0)
@@ -194,5 +205,39 @@ fn print_relocs(o: &mut String, e: &Elf) {
             },
             r.addend
         );
+    }
+}
+
+/// Disassembly, one line per instruction.
+///
+/// The index is the 8-byte slot number inside the section, so a 16-byte
+/// immediate load makes the next index jump by two. `llvm-objdump` numbers
+/// them the same way, which is what lets the two outputs be lined up
+/// instruction by instruction rather than line by line.
+fn print_disasm(o: &mut String, e: &Elf, raw: bool) {
+    for s in e.text_sections() {
+        let code = s.data(&e.file);
+        let (ins, err) = insn::decode_all(code);
+        let _ = writeln!(
+            o,
+            "section {} slots={} insns={}",
+            s.name,
+            code.len() / 8,
+            ins.len()
+        );
+        for i in &ins {
+            if raw {
+                let mut hex = String::new();
+                for b in &i.bytes {
+                    let _ = write!(hex, "{:02x} ", b);
+                }
+                let _ = writeln!(o, "{:6}:\t{:<49}{}", i.idx, hex.trim_end(), i.text());
+            } else {
+                let _ = writeln!(o, "{:6}:\t{}", i.idx, i.text());
+            }
+        }
+        if let Some(msg) = err {
+            let _ = writeln!(o, "  ! {}", msg);
+        }
     }
 }

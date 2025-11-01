@@ -124,29 +124,39 @@ Ranked by how little of it we control.
 
 ### Milestone 0: the floor
 
-- [ ] ELF64 reader with a bounds-checked cursor, `-S`
+- [x] ELF64 reader with a bounds-checked cursor, `-S`
       why: every later stage reads attacker-controlled bytes. The cursor has to
       exist before anything that uses it, or the bounds checks get retrofitted
       and miss cases. Rust makes a missed check a panic rather than a read, but
       a panic is still a crash and the robustness sweep counts it as one.
-- [ ] Symbol table and relocations, `-y` and `-r`
+- [x] Symbol table and relocations, `-y` and `-r`
       why: a BPF instruction stream is meaningless without them. `r1 = 0 ll`
       with an `R_BPF_64_64` against `mymap` is a map reference, and without
       the relocation it is the constant zero.
-- [ ] readelf comparison for sections, symbols and relocations
+- [x] readelf comparison for sections, symbols and relocations
       why: the ELF layer is the one place a genuinely independent codebase
       (binutils) will check us, and it is cheap.
+      done: 1624 section headers, 1048 symbols, 6264 relocation records over
+      56 objects, field by field, 0 mismatches. It found three defects on its
+      first run: STT_SECTION symbols printed as a dash rather than under the
+      section name (664 of 1048 symbols), SHF_EXCLUDE missing from the flag
+      string, and section type 0x6fff4c03 printed as UNKNOWN.
 
 ### Milestone 1: the decoder, which is the point
 
-- [ ] Instruction decode: ALU64, ALU32, the jump classes, LD/LDX/ST/STX
+- [x] Instruction decode: ALU64, ALU32, the jump classes, LD/LDX/ST/STX
       why: the core. Written from the kernel ISA document, then corrected
       against the oracle, in that order, so the oracle is measuring something.
-- [ ] LLVM-syntax printing, and the per-instruction comparison against
+- [x] LLVM-syntax printing, and the per-instruction comparison against
       `llvm-objdump` over the corpus
+      done: 3114 instructions over 168 sections of 56 objects agree, compared
+      by (section, slot index) with the raw bytes checked too, so a
+      misalignment cannot hide as agreement. 32 deliberate divergences, all
+      of them the local-call case below, each one required to carry src_reg
+      == 1 in its actual bytes before the allow-list will accept it.
       why: a per-program diff says something disagreed somewhere in 400
       instructions. A per-instruction comparison names the opcode.
-- [ ] The 16-byte `lddw` forms, including the six `src_reg` pseudo variants
+- [x] The 16-byte `lddw` forms, including the six `src_reg` pseudo variants
       why: this is the only instruction whose length is not 8, so every loop
       in the program has to agree about it, and `src_reg` selects between a
       map fd, a map value, a BTF id and a plain 64-bit constant.
@@ -167,7 +177,7 @@ Ranked by how little of it we control.
       `invalid instruction encoding`. If we print `r14 = 1` we have
       over-accepted, and over-acceptance in a disassembler is how a reader
       hides a malformed object.
-- [ ] `call` with `src_reg = 1`, where we disagree with the oracle on purpose
+- [x] `call` with `src_reg = 1`, where we disagree with the oracle on purpose
       why: measured, `llvm-mc` prints `85 10 00 00 01 00 00 00` as `call 1`,
       identical to `85 00 00 00 01 00 00 00`. The first is a relative call to
       another subprogram and the second is helper 1. The oracle erases the

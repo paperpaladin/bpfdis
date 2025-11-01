@@ -86,6 +86,42 @@ for facet in sections symbols relocs; do
     fi
 done
 
+# -------------------------------------- oracle 2: LLVM, per instruction
+note "oracle: llvm-objdump, per instruction"
+dout=$(python3 "$HERE/disasm_cmp.py" "$BIN" "$W"/obj/*.o)
+drc=$?
+echo "$dout" | grep -v '^  ' | sed 's/^/     /'
+if [ $drc -eq 0 ]; then
+    ok "every decoded instruction matches llvm-objdump"
+else
+    no "instructions disagree with llvm-objdump"
+    echo "$dout" | grep '^  ' | head -30
+fi
+dget() { echo "$dout" | sed -n "s/^$1=\([0-9-]*\)$/\1/p"; }
+agree=$(dget agree)
+if [ "${agree:-0}" -ge 3000 ]; then
+    ok "instruction comparison is non-vacuous ($agree instructions)"
+else
+    no "instruction comparison covered only ${agree:-0} instructions"
+fi
+for b in disagree we_refuse llvm_refuse bytes_differ only_llvm only_ours; do
+    v=$(dget $b)
+    if [ "${v:-1}" -eq 0 ]; then
+        ok "bucket $b is empty"
+    else
+        no "bucket $b holds $v instructions"
+    fi
+done
+# The allow-list exists for one measured divergence. If it ever stops firing,
+# either the corpus lost its subprogram calls or the rule stopped matching,
+# and both are reasons to look rather than to report a pass.
+lc=$(dget allowed_local_call)
+if [ "${lc:-0}" -gt 0 ]; then
+    ok "the local-call divergence from llvm-objdump fired $lc times"
+else
+    no "the local-call allow-list rule never fired; it is not being exercised"
+fi
+
 # ----------------------------------------------------------------- exit codes
 note "exit status"
 "$BIN" >/dev/null 2>&1; [ $? -eq 2 ] && ok "no argument is a usage error (2)" \
