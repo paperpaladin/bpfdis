@@ -160,19 +160,21 @@ Ranked by how little of it we control.
       why: this is the only instruction whose length is not 8, so every loop
       in the program has to agree about it, and `src_reg` selects between a
       map fd, a map value, a BTF id and a plain 64-bit constant.
-- [ ] Atomic operations: the `imm`-selected `BPF_ATOMIC` family
+- [x] Atomic operations: the `imm`-selected `BPF_ATOMIC` family
       why: `0xdb` with `imm` 0x00/0x40/0x50/0xa0/0xa1/0xf1 are six different
       instructions sharing one opcode byte, and the fetch bit changes whether
       a register is written.
-- [ ] ISA v4: `movsx`, `ldsx`, signed div/mod, `bswap`, `gotol`
+- [x] ISA v4: `movsx`, `ldsx`, signed div/mod, `bswap`, `gotol`, `may_goto`,
+      and `addr_space_cast`, which the sweep found and nothing else would
+      have: it is the 64-bit register move with `off` set to 1
       why: clang 19 emits these at `-mcpu=v4` and they reuse the `off` field
       of instructions that previously required it to be zero. A decoder that
       ignores `off` silently prints the v3 meaning.
-- [ ] The opcode sweep: enumerate the encoding space against `llvm-mc`
+- [x] The opcode sweep: enumerate the encoding space against `llvm-mc`
       why: the corpus reaches the opcodes clang emits. The sweep reaches the
       ones it does not, which is where a decoder is actually wrong. Five
       buckets, each counted separately; a refusal is not a pass.
-- [ ] Register-number and reserved-field validation
+- [x] Register-number and reserved-field validation
       why: LLVM refuses `dst = r14`. Measured: `b7 fe 00 00 01 00 00 00` is
       `invalid instruction encoding`. If we print `r14 = 1` we have
       over-accepted, and over-acceptance in a disassembler is how a reader
@@ -183,6 +185,16 @@ Ranked by how little of it we control.
       another subprogram and the second is helper 1. The oracle erases the
       distinction; bpfdis must not, so this goes in the allow-list with the
       encoding that proves it.
+
+### Milestone 1a: the second direction
+
+- [x] Use `llvm-mc` as an ASSEMBLER as well, and make it the arbiter of every
+      divergence
+      why: a disassembler checked only against another disassembler shares
+      that disassembler's blind spots. Assembling our text back and requiring
+      the original bytes is a different question with a different failure
+      mode, and it turned 38 unexplained divergences and 17 unexplained
+      over-acceptances into LLVM disagreeing with itself.
 
 ### Milestone 2: structure
 

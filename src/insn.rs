@@ -229,6 +229,9 @@ pub enum Op {
         wide: bool,
         reg: bool,
     },
+    /// `dst = addr_space_cast(src, dst_as, src_as)`: `BPF_ALU64 | BPF_MOV |
+    /// BPF_X` with `off` 1, where `imm` holds the two address spaces.
+    AddrSpaceCast,
     /// `goto +off`, or `gotol +imm` when `long`.
     Ja {
         long: bool,
@@ -470,7 +473,8 @@ impl Insn {
         let uses_src = match &self.op {
             Some(Op::Alu { reg, .. }) => *reg,
             Some(Op::Jmp { reg, .. }) => *reg,
-            Some(Op::Load { .. })
+            Some(Op::AddrSpaceCast)
+            | Some(Op::Load { .. })
             | Some(Op::StoreReg { .. })
             | Some(Op::Atomic { .. })
             | Some(Op::LdInd { .. }) => true,
@@ -569,11 +573,25 @@ impl Insn {
             },
             AluOp::Mov if reg => match (self.off, wide) {
                 (0, _) => {}
+                // off == 1 on the 64-bit register move is not a move at all:
+                // it is the address-space cast, and `imm` carries the two
+                // address spaces rather than being required to be zero.
+                (1, true) => {
+                    self.op = Some(Op::AddrSpaceCast);
+                    return;
+                }
                 (8, _) | (16, _) => sx = self.off as u8,
                 (32, true) => sx = 32,
                 _ => self.defects.push(Defect::OffNotZero),
             },
             AluOp::Neg => {
+                if reg {
+                    self.bad = Some(
+                        "negate with the source bit set is not allocated; BPF_NEG is BPF_K only"
+                            .into(),
+                    );
+                    return;
+                }
                 self.need_zero_off();
                 self.need_zero_src();
                 self.need_zero_imm();
@@ -618,11 +636,20 @@ impl Insn {
                 self.op = Some(Op::Ja { long: !wide });
             }
             0x80 => {
-                // CALL. `src` selects helper, local subprogram, or kfunc.
-                if !wide || reg {
+                if !wide {
                     self.bad = Some(format!("no jump operation for code {:#04x}", code));
                     return;
                 }
+                if reg {
+                    // BPF_JMP | BPF_CALL | BPF_X is `callx`, an indirect call
+                    // through the destination register.
+                    self.need_zero_off();
+                    self.need_zero_imm();
+                    self.need_zero_src();
+                    self.op = Some(Op::CallX);
+                    return;
+                }
+                // CALL. `src` selects helper, local subprogram, or kfunc.
                 if self.src > 2 {
                     self.bad = Some(format!(
                         "call with src {} (0 helper, 1 subprogram, 2 kfunc)",
@@ -639,17 +666,8 @@ impl Insn {
                 self.op = Some(Op::Call { pseudo: self.src });
             }
             0x90 => {
-                if !wide {
+                if !wide || reg {
                     self.bad = Some(format!("no jump operation for code {:#04x}", code));
-                    return;
-                }
-                if reg {
-                    // BPF_JMP | BPF_CALL | BPF_X is `callx`, an indirect call
-                    // through a register.
-                    self.need_zero_off();
-                    self.need_zero_imm();
-                    self.need_zero_src();
-                    self.op = Some(Op::CallX);
                     return;
                 }
                 self.need_zero_dst();
@@ -886,6 +904,16 @@ impl Insn {
                     let _ = write!(s, "goto {}", joff(self.off as i32));
                 }
             }
+            Op::AddrSpaceCast => {
+                let _ = write!(
+                    s,
+                    "{} = addr_space_cast({}, {}, {})",
+                    reg(self.dst),
+                    reg(self.src),
+                    (self.imm as u32) >> 16,
+                    (self.imm as u32) & 0xffff
+                );
+            }
             Op::MayGoto => {
                 let _ = write!(s, "may_goto {}", joff(self.off as i32));
             }
@@ -940,39 +968,48 @@ impl Insn {
                 );
             }
             Op::Atomic { size, aop, fetch } => {
+                // The 32-bit forms name their value register `w`, and their
+                // exchanges are spelled xchg32_32 and cmpxchg32_32. Both are
+                // taken from what `llvm-mc` ASSEMBLES, which disagrees with
+                // what `llvm-objdump` prints for the same bytes; see the
+                // round-trip section of the README.
                 let t = size_name(*size);
-                let w = if *size == BPF_W { "32" } else { "64" };
+                let narrow = *size == BPF_W;
+                let v = |r: u8| if narrow { reg32(r) } else { reg(r) };
+                let w = if narrow { "32_32" } else { "_64" };
                 match aop {
                     AtomicOp::Xchg => {
                         let _ = write!(
                             s,
-                            "{} = xchg_{}({}{}, {})",
-                            reg(self.src),
+                            "{} = xchg{}({}{}, {})",
+                            v(self.src),
                             w,
                             reg(self.dst),
                             offsuffix(self.off),
-                            reg(self.src)
+                            v(self.src)
                         );
                     }
                     AtomicOp::CmpXchg => {
                         let _ = write!(
                             s,
-                            "r0 = cmpxchg_{}({}{}, r0, {})",
+                            "{} = cmpxchg{}({}{}, {}, {})",
+                            v(0),
                             w,
                             reg(self.dst),
                             offsuffix(self.off),
-                            reg(self.src)
+                            v(0),
+                            v(self.src)
                         );
                     }
                     _ if *fetch => {
                         let _ = write!(
                             s,
                             "{} = atomic_fetch_{}(({} *){}, {})",
-                            reg(self.src),
+                            v(self.src),
                             aop.name(),
                             t,
                             memoff(self.dst, self.off),
-                            reg(self.src)
+                            v(self.src)
                         );
                     }
                     _ => {
@@ -982,7 +1019,7 @@ impl Insn {
                             t,
                             memoff(self.dst, self.off),
                             aop.sym(),
-                            reg(self.src)
+                            v(self.src)
                         );
                     }
                 }

@@ -18,6 +18,8 @@ usage: bpfdis [MODE...] FILE
   -r, --relocs      relocations, resolved against the symbol table
   -d, --disasm      every executable section, one line per instruction
       --raw         with -d, also print the raw bytes of each instruction
+  -x, --hex         read hex-encoded instructions from stdin, one per line,
+                    and decode each on its own: the raw-encoding entry point
   -A, --all         every mode above
   -h, --help        this text
 
@@ -42,6 +44,7 @@ impl Modes {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut m = Modes::default();
+    let mut hexmode = false;
     let mut path: Option<String> = None;
     for a in &args {
         match a.as_str() {
@@ -49,6 +52,7 @@ fn main() -> ExitCode {
             "-y" | "--symbols" => m.symbols = true,
             "-r" | "--relocs" => m.relocs = true,
             "-d" | "--disasm" => m.disasm = true,
+            "-x" | "--hex" => hexmode = true,
             "--raw" => m.raw = true,
             "-A" | "--all" => {
                 m.sections = true;
@@ -73,6 +77,9 @@ fn main() -> ExitCode {
                 path = Some(s.to_string());
             }
         }
+    }
+    if hexmode {
+        return hex_mode();
     }
     let path = match path {
         Some(p) => p,
@@ -240,4 +247,90 @@ fn print_disasm(o: &mut String, e: &Elf, raw: bool) {
             let _ = writeln!(o, "  ! {}", msg);
         }
     }
+}
+
+/// Decode instructions given as hex bytes on stdin, one instruction per line.
+///
+/// This is how the opcode sweep reaches encodings no compiler emits. Each
+/// line is decoded in isolation, so nothing about the neighbouring lines can
+/// change the answer, and the output has exactly one line per input line
+/// whether the encoding decoded or not:
+///
+/// ```text
+///   <lineno>\tOK\t<text>\t<defects or ->
+///   <lineno>\tBAD\t<reason>\t-
+/// ```
+fn hex_mode() -> ExitCode {
+    use std::io::BufRead;
+    let stdin = std::io::stdin();
+    let mut o = String::new();
+    let mut lineno = 0usize;
+    for line in stdin.lock().lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("bpfdis: stdin: {}", e);
+                return ExitCode::from(1);
+            }
+        };
+        lineno += 1;
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        let mut bytes = Vec::new();
+        let mut okparse = true;
+        for tok in t.split(|c: char| c == ',' || c.is_whitespace()) {
+            if tok.is_empty() {
+                continue;
+            }
+            let tok = tok.strip_prefix("0x").or_else(|| tok.strip_prefix("0X")).unwrap_or(tok);
+            match u8::from_str_radix(tok, 16) {
+                Ok(b) => bytes.push(b),
+                Err(_) => {
+                    okparse = false;
+                    break;
+                }
+            }
+        }
+        if !okparse || bytes.len() < 8 {
+            let _ = writeln!(o, "{}\tBAD\tnot 8 or 16 hex bytes\t-", lineno);
+            continue;
+        }
+        match insn::Insn::decode(&bytes, 0) {
+            Some(i) => {
+                if i.slots * 8 != bytes.len() {
+                    let _ = writeln!(
+                        o,
+                        "{}\tBAD\tline holds {} bytes, the instruction is {}\t-",
+                        lineno,
+                        bytes.len(),
+                        i.slots * 8
+                    );
+                    continue;
+                }
+                match &i.bad {
+                    Some(r) => {
+                        let _ = writeln!(o, "{}\tBAD\t{}\t-", lineno, r);
+                    }
+                    None => {
+                        let d = if i.defects.is_empty() {
+                            "-".to_string()
+                        } else {
+                            let mut v: Vec<&str> = i.defects.iter().map(|d| d.name()).collect();
+                            v.sort_unstable();
+                            v.dedup();
+                            v.join(",")
+                        };
+                        let _ = writeln!(o, "{}\tOK\t{}\t{}", lineno, i.text(), d);
+                    }
+                }
+            }
+            None => {
+                let _ = writeln!(o, "{}\tBAD\tfewer than 8 bytes\t-", lineno);
+            }
+        }
+    }
+    emit(&o);
+    ExitCode::from(0)
 }

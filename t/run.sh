@@ -122,6 +122,63 @@ else
     no "the local-call allow-list rule never fired; it is not being exercised"
 fi
 
+# -------------------------------- oracle 3: llvm-mc, over the encoding space
+note "oracle: llvm-mc, sweeping encodings no compiler emits"
+sout=$(python3 "$HERE/opcode_sweep.py" "$BIN")
+src_=$?
+echo "$sout" | grep -v "^  " | sed 's/^/     /'
+echo "$sout" | grep "^  " | sed 's/^/     /' | head -40
+sget() { echo "$sout" | sed -n "s/^$1=\([0-9-]*\)$/\1/p"; }
+if [ $src_ -eq 0 ]; then
+    ok "no encoding decodes differently in bpfdis and llvm-mc"
+else
+    no "the encoding sweep found a disagreement"
+fi
+sweepn=$(sget encodings)
+if [ "${sweepn:-0}" -eq 24279 ]; then
+    ok "the sweep is deterministic and covered $sweepn encodings"
+else
+    no "the sweep covered ${sweepn:-0} encodings, expected 24279"
+fi
+sa=$(sget agree)
+if [ "${sa:-0}" -ge 8000 ]; then
+    ok "sweep agreement is non-vacuous ($sa encodings decoded identically)"
+else
+    no "sweep agreed on only ${sa:-0} encodings"
+fi
+sb=$(sget both_refuse)
+if [ "${sb:-0}" -ge 10000 ]; then
+    ok "the sweep reaches unallocated encoding space ($sb refused by both)"
+else
+    no "the sweep refused only ${sb:-0} encodings; it is not reaching bad space"
+fi
+# Every bucket that is not plain agreement has to be accounted for by an
+# outside authority, not by an opinion written here.
+v=$(sget we_refuse_llvm_faithful)
+if [ "${v:-1}" -eq 0 ]; then
+    ok "every encoding bpfdis refuses is one llvm-mc decodes lossily ($(sget we_refuse_llvm_lossy) of them)"
+else
+    no "$v encodings are refused by bpfdis while llvm round-trips them faithfully"
+fi
+if [ "$(sget over_accept_clean)" = "$(sget over_accept_confirmed)" ] \
+   && [ "${v:-1}" -eq 0 ]; then
+    ok "every unflagged over-acceptance is confirmed by llvm-mc as an assembler ($(sget over_accept_clean))"
+else
+    no "an over-acceptance is not confirmed by the assembler"
+fi
+v=$(sget over_accept_flagged_unchecked)
+if [ "${v:-1}" -eq 0 ]; then
+    ok "all $(sget over_accept_flagged) flagged over-acceptances survive having their dirty fields cleaned"
+else
+    no "$v flagged over-acceptances could not be confirmed"
+fi
+v=$(sget allowed_roundtrip)
+if [ "${v:-0}" -gt 0 ]; then
+    ok "$v divergences are LLVM disagreeing with itself, proved by assembling our text back"
+else
+    no "the assembler round-trip rule never fired"
+fi
+
 # ----------------------------------------------------------------- exit codes
 note "exit status"
 "$BIN" >/dev/null 2>&1; [ $? -eq 2 ] && ok "no argument is a usage error (2)" \
