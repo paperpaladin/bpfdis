@@ -1,3 +1,5 @@
 target/
 t/corpus/*.o
 t/scratch/
+__pycache__/
+*.pyc

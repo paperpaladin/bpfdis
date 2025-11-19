@@ -40,6 +40,11 @@ for tool in clang llvm-objdump llvm-mc readelf; do
     }
 done
 
+# The sweep imports t/llvmbpf.py, and an import writes a __pycache__ next to
+# it. `cq c` stages the whole tree, so a stray build artifact becomes a
+# tracked file; two of them already did once.
+export PYTHONDONTWRITEBYTECODE=1
+
 W=$(mktemp -d) || exit 2
 trap 'rm -rf "$W"' EXIT INT TERM
 
