@@ -26,32 +26,19 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, __file__.rsplit("/", 1)[0])
+from llvmbpf import norm  # noqa: E402
+
 MAXSHOW = 25
-
-NUM = re.compile(r"(?<![0-9A-Za-z_])(-?)(0[xX][0-9a-fA-F]+|[0-9]+)")
-SYMSUF = re.compile(r"\s*<[^<>]*>\s*$")
-WS = re.compile(r"\s+")
-
-
-def norm(text):
-    """Canonicalise an instruction so two printers can be compared whole."""
-    t = SYMSUF.sub("", text.strip())
-    t = WS.sub(" ", t)
-
-    def rep(m):
-        sign, digits = m.groups()
-        v = int(digits, 16) if digits[:2].lower() == "0x" else int(digits, 10)
-        return "%s%d" % (sign, v)
-
-    return NUM.sub(rep, t)
-
 
 def objdump(obj):
     """{section: {index: (bytes, text)}} from llvm-objdump."""
     p = subprocess.run(
-        ["llvm-objdump", "-d", "--triple=bpf", obj], capture_output=True, text=True
+        ["llvm-objdump", "-dr", "--triple=bpf", obj], capture_output=True, text=True
     )
     out = {}
+    rel = {}
+    fns = {}
     sec = None
     for line in p.stdout.splitlines():
         m = re.match(r"^Disassembly of section (.*):\s*$", line)
@@ -60,6 +47,17 @@ def objdump(obj):
             out.setdefault(sec, {})
             continue
         if sec is None:
+            continue
+        m = re.match(r"^([0-9a-f]{16}) <(.*)>:\s*$", line)
+        if m:
+            fns.setdefault(sec, []).append((int(m.group(1), 16) // 8, m.group(2)))
+            continue
+        # A relocation line is indented past the instruction column:
+        #     \t\t0000000000000020:  R_BPF_64_64\tmymap
+        m = re.match(r"^\t\t([0-9a-f]+):\s+(\S+)\t(.*)$", line)
+        if m:
+            rel.setdefault(sec, {})[int(m.group(1), 16) // 8] = (
+                m.group(2), m.group(3).strip() or "-")
             continue
         parts = line.split("\t")
         if len(parts) < 3:
@@ -71,15 +69,21 @@ def objdump(obj):
         raw = parts[1].strip()
         text = parts[2]
         out[sec][idx] = (raw, text)
-    return out
+    return out, rel, fns
 
 
 def ours(bpfdis, obj):
     p = subprocess.run([bpfdis, "-d", "--raw", obj], capture_output=True, text=True)
     out = {}
+    rel = {}
+    fns = {}
     sec = None
     for line in p.stdout.splitlines():
-        m = re.match(r"^section (.*) slots=\d+ insns=\d+$", line)
+        m = re.match(r"^func (\S+) \S+ slots=(\d+)\.\.\d+$", line)
+        if m and sec is not None:
+            fns.setdefault(sec, []).append((int(m.group(2)), m.group(1)))
+            continue
+        m = re.match(r"^section (.*) slots=\d+ insns=\d+ funcs=\d+$", line)
         if m:
             sec = m.group(1)
             out.setdefault(sec, {})
@@ -87,19 +91,22 @@ def ours(bpfdis, obj):
         if sec is None:
             continue
         parts = line.split("\t")
-        if len(parts) != 2:
+        if len(parts) < 2:
             continue
         m = re.match(r"^\s*(\d+):\s*$", parts[0])
         if not m:
             continue
         idx = int(m.group(1))
         rest = parts[1]
+        if len(parts) > 2 and parts[2].lstrip().startswith("; "):
+            f = parts[2].lstrip()[2:].split()
+            rel.setdefault(sec, {})[idx] = (f[0], f[1] if len(f) > 1 else "-")
         # "<hex bytes padded> <text>": the byte column is fixed width.
         m = re.match(r"^((?:[0-9a-f]{2} )*[0-9a-f]{2}) +(.*)$", rest)
         if not m:
             continue
         out[sec][idx] = (m.group(1), m.group(2))
-    return out
+    return out, rel, fns
 
 
 # ---------------------------------------------------------------- allow-list
@@ -152,13 +159,38 @@ def main():
     counts = dict(
         agree=0, disagree=0, we_refuse=0, llvm_refuse=0, both_refuse=0,
         bytes_differ=0, only_llvm=0, only_ours=0, sections=0,
+        reloc_agree=0, reloc_differ=0, func_agree=0, func_differ=0,
     )
     allowed = dict((n, 0) for n, _ in ALLOWED)
     bad = []
     for obj in objs:
-        a = objdump(obj)
-        b = ours(bpfdis, obj)
+        a, arel, afn = objdump(obj)
+        b, brel, bfn = ours(bpfdis, obj)
+        # Function boundaries. llvm-objdump labels each one from the symbol
+        # table; a section with three STT_FUNC symbols is three programs and
+        # every per-program number below depends on the split being right.
+        for sec in sorted(set(afn) | set(bfn)):
+            x, y = sorted(afn.get(sec, [])), sorted(bfn.get(sec, []))
+            if x == y:
+                counts["func_agree"] += len(x)
+            else:
+                counts["func_differ"] += 1
+                bad.append("%s %s: functions %r vs %r"
+                           % (obj.split("/")[-1], sec, x, y))
         name = obj.split("/")[-1]
+        # The relocations llvm-objdump interleaves into the disassembly are a
+        # second, independent statement about which instruction each one
+        # patches. readelf already agreed about the records; this agrees
+        # about where they land.
+        for sec in sorted(set(arel) | set(brel)):
+            x, y = arel.get(sec, {}), brel.get(sec, {})
+            for idx in sorted(set(x) | set(y)):
+                if x.get(idx) == y.get(idx):
+                    counts["reloc_agree"] += 1
+                else:
+                    counts["reloc_differ"] += 1
+                    bad.append("%s %s[%d]: relocation %r vs %r"
+                               % (name, sec, idx, x.get(idx), y.get(idx)))
         for sec in sorted(set(a) | set(b)):
             ai = a.get(sec, {})
             bi = b.get(sec, {})
@@ -210,7 +242,8 @@ def main():
                     bad.append("%s %s[%d] %s:\n    llvm   %s\n    bpfdis %s"
                                % (name, sec, idx, araw.split()[0], norm(atext), norm(btext)))
     for k in ("sections", "agree", "disagree", "we_refuse", "llvm_refuse",
-              "both_refuse", "bytes_differ", "only_llvm", "only_ours"):
+              "both_refuse", "bytes_differ", "only_llvm", "only_ours",
+              "reloc_agree", "reloc_differ", "func_agree", "func_differ"):
         print("%s=%d" % (k, counts[k]))
     for n, _ in ALLOWED:
         print("allowed_%s=%d" % (n.replace("-", "_"), allowed[n]))
@@ -219,7 +252,8 @@ def main():
     if len(bad) > MAXSHOW:
         print("  ... and %d more" % (len(bad) - MAXSHOW))
     hard = (counts["disagree"] + counts["bytes_differ"] + counts["only_llvm"]
-            + counts["only_ours"] + counts["we_refuse"] + counts["llvm_refuse"])
+            + counts["only_ours"] + counts["we_refuse"] + counts["llvm_refuse"]
+            + counts["reloc_differ"] + counts["func_differ"])
     if counts["agree"] == 0:
         print("  compared nothing")
         return 1

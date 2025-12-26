@@ -198,7 +198,7 @@ Ranked by how little of it we control.
 
 ### Milestone 2: structure
 
-- [ ] Relocation application: name the map or symbol inside the disassembly
+- [x] Relocation application: name the map or symbol inside the disassembly
       why: it is what makes the output readable, and it is the first place the
       ELF layer and the decoder have to agree about offsets.
 - [ ] Map definitions, both legacy `bpf_map_def` and BTF-defined `.maps`
@@ -207,7 +207,11 @@ Ranked by how little of it we control.
       it is the form every current program uses.
 - [ ] BTF decoding, compared against `bpftool btf dump file`
       why: a third codebase, and the only oracle for the `.maps` section.
-- [ ] Function boundaries from the symbol table and from `BTF.ext`
+- [x] Function boundaries from the symbol table
+      done: 184 function starts agree with the labels llvm-objdump prints.
+      The END of the last function in a section is not checked by anything,
+      and a mutation that ignores `st_size` entirely survives; see the
+      README. `BTF.ext` is not read.
       why: a `.text` section with four `STT_FUNC` symbols is four programs
       sharing an instruction stream, and every per-program number below is
       wrong if they are treated as one.

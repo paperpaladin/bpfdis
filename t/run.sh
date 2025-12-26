@@ -109,12 +109,21 @@ if [ "${agree:-0}" -ge 3000 ]; then
 else
     no "instruction comparison covered only ${agree:-0} instructions"
 fi
-for b in disagree we_refuse llvm_refuse bytes_differ only_llvm only_ours; do
+for b in disagree we_refuse llvm_refuse bytes_differ only_llvm only_ours \
+         reloc_differ func_differ; do
     v=$(dget $b)
     if [ "${v:-1}" -eq 0 ]; then
         ok "bucket $b is empty"
     else
         no "bucket $b holds $v instructions"
+    fi
+done
+for f in reloc_agree func_agree; do
+    v=$(dget $f)
+    if [ "${v:-0}" -gt 0 ]; then
+        ok "$f is non-vacuous ($v records)"
+    else
+        no "$f compared nothing"
     fi
 done
 # The allow-list exists for one measured divergence. If it ever stops firing,

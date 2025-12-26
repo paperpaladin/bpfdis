@@ -4,6 +4,7 @@
 
 mod elf;
 mod insn;
+mod prog;
 
 use elf::Elf;
 use std::fmt::Write as _;
@@ -221,34 +222,59 @@ fn print_relocs(o: &mut String, e: &Elf) {
 /// immediate load makes the next index jump by two. `llvm-objdump` numbers
 /// them the same way, which is what lets the two outputs be lined up
 /// instruction by instruction rather than line by line.
+///
+/// A relocation that lands on an instruction is printed after it as a
+/// comment. Without it, the 16-byte load of a map is the constant zero.
 fn print_disasm(o: &mut String, e: &Elf, raw: bool) {
-    for s in e.text_sections() {
-        let code = s.data(&e.file);
-        let (ins, err) = insn::decode_all(code);
+    for p in prog::programs(e) {
         let _ = writeln!(
             o,
-            "section {} slots={} insns={}",
-            s.name,
-            code.len() / 8,
-            ins.len()
+            "section {} slots={} insns={} funcs={}",
+            p.name,
+            p.slots,
+            p.insns.len(),
+            p.funcs.len()
         );
-        for i in &ins {
+        let mut fi = 0usize;
+        for i in &p.insns {
+            while fi < p.funcs.len() && p.funcs[fi].start <= i.idx {
+                let f = &p.funcs[fi];
+                let _ = writeln!(
+                    o,
+                    "func {} {} slots={}..{}",
+                    f.name,
+                    if f.global { "global" } else { "local" },
+                    f.start,
+                    f.end
+                );
+                fi += 1;
+            }
+            let ann = match p.reloc_at(i.idx) {
+                Some(r) => format!("\t; {} {}", elf::r_bpf_name(r.rtype), r.sym_name),
+                None => String::new(),
+            };
             if raw {
                 let mut hex = String::new();
                 for b in &i.bytes {
                     let _ = write!(hex, "{:02x} ", b);
                 }
-                let _ = writeln!(o, "{:6}:\t{:<49}{}", i.idx, hex.trim_end(), i.text());
+                let _ = writeln!(
+                    o,
+                    "{:6}:\t{:<49}{}{}",
+                    i.idx,
+                    hex.trim_end(),
+                    i.text(),
+                    ann
+                );
             } else {
-                let _ = writeln!(o, "{:6}:\t{}", i.idx, i.text());
+                let _ = writeln!(o, "{:6}:\t{}{}", i.idx, i.text(), ann);
             }
         }
-        if let Some(msg) = err {
+        if let Some(msg) = &p.tail_err {
             let _ = writeln!(o, "  ! {}", msg);
         }
     }
 }
-
 /// Decode instructions given as hex bytes on stdin, one instruction per line.
 ///
 /// This is how the opcode sweep reaches encodings no compiler emits. Each
