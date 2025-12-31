@@ -208,10 +208,13 @@ Ranked by how little of it we control.
 - [ ] BTF decoding, compared against `bpftool btf dump file`
       why: a third codebase, and the only oracle for the `.maps` section.
 - [x] Function boundaries from the symbol table
-      done: 184 function starts agree with the labels llvm-objdump prints.
-      The END of the last function in a section is not checked by anything,
-      and a mutation that ignores `st_size` entirely survives; see the
-      README. `BTF.ext` is not read.
+      done: 186 function (start, end, name) triples agree. Starts come from
+      the labels llvm-objdump prints; ends are derived in the harness from
+      readelf's symbol sizes and section sizes, which is a second
+      implementation rather than an authority, because nothing installed
+      here prints where a BPF function ends. The mutation that ignores
+      st_size survived the whole compiled corpus and dies against
+      t/corpus/padding.s. `BTF.ext` is not read.
       why: a `.text` section with four `STT_FUNC` symbols is four programs
       sharing an instruction stream, and every per-program number below is
       wrong if they are treated as one.

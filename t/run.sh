@@ -51,13 +51,13 @@ trap 'rm -rf "$W"' EXIT INT TERM
 # ---------------------------------------------------------------- the corpus
 note "corpus"
 n=$(sh "$HERE/mkcorpus.sh" "$W/obj")
-if [ "${n:-0}" -ge 40 ]; then
+if [ "${n:-0}" -ge 56 ]; then
     ok "corpus built ($n objects)"
 else
-    no "corpus built only ${n:-0} objects, expected at least 40"
+    no "corpus built only ${n:-0} objects, expected at least 56"
 fi
 set -- "$W"/obj/*.o
-if [ "$#" -lt 40 ]; then
+if [ "$#" -lt 56 ]; then
     no "corpus directory holds $# objects"
 fi
 
@@ -104,7 +104,7 @@ else
 fi
 dget() { echo "$dout" | sed -n "s/^$1=\([0-9-]*\)$/\1/p"; }
 agree=$(dget agree)
-if [ "${agree:-0}" -ge 3000 ]; then
+if [ "${agree:-0}" -ge 3100 ]; then
     ok "instruction comparison is non-vacuous ($agree instructions)"
 else
     no "instruction comparison covered only ${agree:-0} instructions"
@@ -118,12 +118,12 @@ for b in disagree we_refuse llvm_refuse bytes_differ only_llvm only_ours \
         no "bucket $b holds $v instructions"
     fi
 done
-for f in reloc_agree func_agree; do
+for f in reloc_agree func_agree llvm_cannot_read allowed_roundtrip; do
     v=$(dget $f)
     if [ "${v:-0}" -gt 0 ]; then
         ok "$f is non-vacuous ($v records)"
     else
-        no "$f compared nothing"
+        no "$f is zero; the fixture that exercises it is missing"
     fi
 done
 # The allow-list exists for one measured divergence. If it ever stops firing,

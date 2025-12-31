@@ -27,7 +27,8 @@ import subprocess
 import sys
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
-from llvmbpf import norm  # noqa: E402
+from llvmbpf import assemble, norm, rawbytes  # noqa: E402
+from readelfp import SEC_RE, SYM_RE  # noqa: E402
 
 MAXSHOW = 25
 
@@ -39,6 +40,7 @@ def objdump(obj):
     out = {}
     rel = {}
     fns = {}
+    ell = set()
     sec = None
     for line in p.stdout.splitlines():
         m = re.match(r"^Disassembly of section (.*):\s*$", line)
@@ -51,6 +53,13 @@ def objdump(obj):
         m = re.match(r"^([0-9a-f]{16}) <(.*)>:\s*$", line)
         if m:
             fns.setdefault(sec, []).append((int(m.group(1), 16) // 8, m.group(2)))
+            continue
+        # llvm-objdump elides a run of zero bytes as a bare "..." and prints
+        # no instruction lines for it at all. That is a rendering choice, not
+        # a verdict, so the comparison has to know about it rather than
+        # reporting the missing instructions as a disagreement.
+        if line.strip() == "...":
+            ell.add(sec)
             continue
         # A relocation line is indented past the instruction column:
         #     \t\t0000000000000020:  R_BPF_64_64\tmymap
@@ -69,7 +78,7 @@ def objdump(obj):
         raw = parts[1].strip()
         text = parts[2]
         out[sec][idx] = (raw, text)
-    return out, rel, fns
+    return out, rel, fns, ell
 
 
 def ours(bpfdis, obj):
@@ -79,9 +88,10 @@ def ours(bpfdis, obj):
     fns = {}
     sec = None
     for line in p.stdout.splitlines():
-        m = re.match(r"^func (\S+) \S+ slots=(\d+)\.\.\d+$", line)
+        m = re.match(r"^func (\S+) \S+ slots=(\d+)\.\.(\d+)$", line)
         if m and sec is not None:
-            fns.setdefault(sec, []).append((int(m.group(2)), m.group(1)))
+            fns.setdefault(sec, []).append(
+                (int(m.group(2)), int(m.group(3)), m.group(1)))
             continue
         m = re.match(r"^section (.*) slots=\d+ insns=\d+ funcs=\d+$", line)
         if m:
@@ -150,6 +160,66 @@ ALLOWED = [
 ]
 
 
+def expected_funcs(obj):
+    """{section: [(start_slot, end_slot, name)]} from readelf alone.
+
+    This is a second implementation rather than an outside authority: no tool
+    here prints where a BPF function ends. What IS external is every input it
+    uses -- the symbol values and sizes and the section sizes all come from
+    binutils -- and the rule it applies is three lines long and written down
+    in the README. The mutation it exists for is deleting the st_size
+    handling, which the whole compiled corpus cannot see because every
+    compiler-generated function reaches its section's end or its neighbour.
+    """
+    secs = {}
+    for line in subprocess.run(
+        ["readelf", "-SW", obj], capture_output=True, text=True
+    ).stdout.splitlines():
+        m = SEC_RE.match(line)
+        if m:
+            nr, nm = m.group(1), m.group(2)
+            secs[int(nr)] = (nm or "", int(m.group(6), 16), m.group(8) or "")
+    out = {}
+    started = False
+    for line in subprocess.run(
+        ["readelf", "-sW", obj], capture_output=True, text=True
+    ).stdout.splitlines():
+        if line.startswith("Symbol table '.symtab'"):
+            started = True
+            continue
+        if not started:
+            continue
+        m = SYM_RE.match(line)
+        if not m or m.group(4) != "FUNC":
+            continue
+        ndx = m.group(7)
+        if not ndx.isdigit() or int(ndx) not in secs:
+            continue
+        nm, size, flg = secs[int(ndx)]
+        if "X" not in flg:
+            continue
+        out.setdefault(nm, []).append(
+            (int(m.group(2), 16) // 8, int(m.group(3)) // 8, m.group(8), size // 8)
+        )
+    final = {}
+    for sec, lst in out.items():
+        lst.sort()
+        slots = lst[0][3]
+        res = []
+        for i, (start, sz, name, _s) in enumerate(lst):
+            nxt = lst[i + 1][0] if i + 1 < len(lst) else slots
+            end = min(start + sz, slots) if sz > 0 else slots
+            res.append((start, min(end, nxt), name))
+        final[sec] = res
+    # A section with no FUNC symbol is one anonymous program named after the
+    # section, which is what bpfdis prints; add it so the comparison is over
+    # the same set.
+    for nr, (nm, size, flg) in secs.items():
+        if "X" in flg and size > 0 and nm not in final:
+            final[nm] = [(0, size // 8, nm)]
+    return final
+
+
 def main():
     bpfdis = sys.argv[1]
     objs = sys.argv[2:]
@@ -160,17 +230,21 @@ def main():
         agree=0, disagree=0, we_refuse=0, llvm_refuse=0, both_refuse=0,
         bytes_differ=0, only_llvm=0, only_ours=0, sections=0,
         reloc_agree=0, reloc_differ=0, func_agree=0, func_differ=0,
+        llvm_elided_zeros=0, llvm_cannot_read=0, allowed_roundtrip=0,
     )
     allowed = dict((n, 0) for n, _ in ALLOWED)
+    pending_diff = []
+    pending_refuse = []
     bad = []
     for obj in objs:
-        a, arel, afn = objdump(obj)
+        a, arel, afn, aell = objdump(obj)
         b, brel, bfn = ours(bpfdis, obj)
         # Function boundaries. llvm-objdump labels each one from the symbol
         # table; a section with three STT_FUNC symbols is three programs and
         # every per-program number below depends on the split being right.
-        for sec in sorted(set(afn) | set(bfn)):
-            x, y = sorted(afn.get(sec, [])), sorted(bfn.get(sec, []))
+        exp = expected_funcs(obj)
+        for sec in sorted(set(afn) | set(bfn) | set(exp)):
+            x, y = sorted(exp.get(sec, [])), sorted(bfn.get(sec, []))
             if x == y:
                 counts["func_agree"] += len(x)
             else:
@@ -199,9 +273,13 @@ def main():
             counts["sections"] += 1
             for idx in sorted(set(ai) | set(bi)):
                 if idx not in ai:
+                    braw = bi[idx][0]
+                    if sec in aell and set(braw.split()) == {"00"}:
+                        counts["llvm_elided_zeros"] += 1
+                        continue
                     counts["only_ours"] += 1
-                    bad.append("%s %s[%d]: bpfdis has an instruction llvm-objdump does not"
-                               % (name, sec, idx))
+                    bad.append("%s %s[%d]: bpfdis has an instruction llvm-objdump does not: %s"
+                               % (name, sec, idx, bi[idx][1]))
                     continue
                 if idx not in bi:
                     counts["only_llvm"] += 1
@@ -220,9 +298,7 @@ def main():
                 if a_bad and b_bad:
                     counts["both_refuse"] += 1
                 elif a_bad:
-                    counts["llvm_refuse"] += 1
-                    bad.append("%s %s[%d]: llvm-objdump refuses, bpfdis decodes: %s"
-                               % (name, sec, idx, btext))
+                    pending_refuse.append((name, sec, idx, braw, btext))
                 elif b_bad:
                     counts["we_refuse"] += 1
                     bad.append("%s %s[%d]: bpfdis refuses, llvm-objdump decodes: %s (%s)"
@@ -238,12 +314,37 @@ def main():
                     if hit:
                         allowed[hit] += 1
                         continue
-                    counts["disagree"] += 1
-                    bad.append("%s %s[%d] %s:\n    llvm   %s\n    bpfdis %s"
-                               % (name, sec, idx, araw.split()[0], norm(atext), norm(btext)))
-    for k in ("sections", "agree", "disagree", "we_refuse", "llvm_refuse",
+                    pending_diff.append((name, sec, idx, araw, atext, btext))
+    # Anything the two tools still differ about goes to LLVM's assembler.
+    # If llvm-mc writes bpfdis's text back to exactly the bytes in the
+    # object, then bpfdis printed what LLVM itself produces going the other
+    # way, and the disagreement is inside LLVM.
+    if pending_diff:
+        asm = assemble([norm(t[5]) for t in pending_diff])
+        for (name, sec, idx, araw, atext, btext), got in zip(pending_diff, asm):
+            if got is not None and got == rawbytes(araw):
+                counts["allowed_roundtrip"] += 1
+            else:
+                counts["disagree"] += 1
+                bad.append("%s %s[%d] %s:\n    llvm   %s\n    bpfdis %s"
+                           % (name, sec, idx, araw.split()[0], norm(atext),
+                              norm(btext)))
+    if pending_refuse:
+        asm = assemble([norm(t[4]) for t in pending_refuse])
+        for (name, sec, idx, braw, btext), got in zip(pending_refuse, asm):
+            if got is not None and got == rawbytes(braw):
+                counts["llvm_cannot_read"] += 1
+            else:
+                counts["we_refuse"] += 0
+                counts["llvm_refuse"] += 1
+                bad.append("%s %s[%d]: llvm-objdump refuses, bpfdis decodes "
+                           "%s, and llvm-mc will not assemble it back"
+                           % (name, sec, idx, btext))
+
+    for k in ("sections", "agree", "allowed_roundtrip", "disagree", "we_refuse", "llvm_refuse",
               "both_refuse", "bytes_differ", "only_llvm", "only_ours",
-              "reloc_agree", "reloc_differ", "func_agree", "func_differ"):
+              "reloc_agree", "reloc_differ", "func_agree", "func_differ",
+              "llvm_elided_zeros", "llvm_cannot_read"):
         print("%s=%d" % (k, counts[k]))
     for n, _ in ALLOWED:
         print("allowed_%s=%d" % (n.replace("-", "_"), allowed[n]))
