@@ -205,7 +205,13 @@ Ranked by how little of it we control.
       why: the modern form is a BTF type with pointer-to-array members encoding
       integers in array lengths, which is unreadable without a BTF decoder, and
       it is the form every current program uses.
-- [ ] BTF decoding, compared against `bpftool btf dump file`
+- [x] BTF decoding, compared against `bpftool btf dump file`
+      done: all 19 BTF kinds, 1648 type records and 3424 lines over 64
+      objects, byte for byte identical to bpftool's own output. Four
+      renderings had to be measured rather than guessed: bpftool prints
+      bitfield_size only when it is nonzero, the ENUM kind flag means SIGNED
+      and not UNSIGNED, FUNC keeps its linkage in vlen rather than in a
+      trailing word, and a DATASEC entry names the variable it points at.
       why: a third codebase, and the only oracle for the `.maps` section.
 - [x] Function boundaries from the symbol table
       done: 186 function (start, end, name) triples agree. Starts come from

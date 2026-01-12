@@ -193,6 +193,31 @@ else
     no "the assembler round-trip rule never fired"
 fi
 
+# ------------------------------------------- oracle 5: bpftool, for BTF
+note "oracle: bpftool btf dump (libbpf), line for line"
+bout=$(python3 "$HERE/btfcmp.py" "$BIN" "$W"/obj/*.o)
+brc=$?
+echo "$bout" | grep -v "^  " | sed 's/^/     /'
+if [ $brc -eq 0 ]; then
+    ok "every BTF line matches bpftool byte for byte"
+else
+    no "BTF output differs from bpftool"
+    echo "$bout" | grep "^  " | head -20
+fi
+bget() { echo "$bout" | sed -n "s/^$1=\([0-9]*\)$/\1/p"; }
+v=$(bget btf_types)
+if [ "${v:-0}" -ge 1000 ]; then
+    ok "BTF comparison is non-vacuous ($v type records, $(bget btf_lines) lines)"
+else
+    no "BTF comparison covered only ${v:-0} type records"
+fi
+v=$(bget btf_kinds)
+if [ "${v:-0}" -ge 19 ]; then
+    ok "all 19 BTF kinds are reached by the corpus"
+else
+    no "the corpus reaches only ${v:-0} BTF kinds of 19"
+fi
+
 # ----------------------------------------------------------------- exit codes
 note "exit status"
 "$BIN" >/dev/null 2>&1; [ $? -eq 2 ] && ok "no argument is a usage error (2)" \

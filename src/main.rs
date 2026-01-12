@@ -5,6 +5,7 @@
 mod elf;
 mod insn;
 mod prog;
+mod btf;
 
 use elf::Elf;
 use std::fmt::Write as _;
@@ -19,6 +20,7 @@ usage: bpfdis [MODE...] FILE
   -r, --relocs      relocations, resolved against the symbol table
   -d, --disasm      every executable section, one line per instruction
       --raw         with -d, also print the raw bytes of each instruction
+  -b, --btf         the .BTF type section, in bpftool's own dump format
   -x, --hex         read hex-encoded instructions from stdin, one per line,
                     and decode each on its own: the raw-encoding entry point
   -A, --all         every mode above
@@ -34,11 +36,12 @@ struct Modes {
     relocs: bool,
     disasm: bool,
     raw: bool,
+    btf: bool,
 }
 
 impl Modes {
     fn any(&self) -> bool {
-        self.sections || self.symbols || self.relocs || self.disasm
+        self.sections || self.symbols || self.relocs || self.disasm || self.btf
     }
 }
 
@@ -53,6 +56,7 @@ fn main() -> ExitCode {
             "-y" | "--symbols" => m.symbols = true,
             "-r" | "--relocs" => m.relocs = true,
             "-d" | "--disasm" => m.disasm = true,
+            "-b" | "--btf" => m.btf = true,
             "-x" | "--hex" => hexmode = true,
             "--raw" => m.raw = true,
             "-A" | "--all" => {
@@ -60,6 +64,7 @@ fn main() -> ExitCode {
                 m.symbols = true;
                 m.relocs = true;
                 m.disasm = true;
+                m.btf = true;
             }
             "-h" | "--help" => {
                 print!("{}", USAGE);
@@ -122,6 +127,19 @@ fn main() -> ExitCode {
     }
     if m.disasm {
         print_disasm(&mut o, &e, m.raw);
+    }
+    if m.btf {
+        match e.section_by_name(".BTF") {
+            Some(s) => match btf::Btf::parse(s.data(&e.file)) {
+                Ok(b) => b.dump(&mut o),
+                Err(msg) => {
+                    eprintln!("bpfdis: {}: .BTF: {}", path, msg);
+                    emit(&o);
+                    return ExitCode::from(1);
+                }
+            },
+            None => eprintln!("bpfdis: {}: no .BTF section", path),
+        }
     }
     emit(&o);
     ExitCode::from(0)
