@@ -218,6 +218,50 @@ else
     no "the corpus reaches only ${v:-0} BTF kinds of 19"
 fi
 
+# ------------------------------------------ oracle 6: libbpf itself
+note "oracle: libbpf, for maps and programs"
+if cc -O1 -o "$W/lp" "$HERE/libbpf_probe.c" -ldl 2>"$W/lp.err"; then
+    lout=$(python3 "$HERE/libbpfcmp.py" "$W/lp" "$BIN" "$W"/obj/*.o)
+    lrc=$?
+    echo "$lout" | grep -v "^  " | sed "s/^/     /"
+    if [ $lrc -eq 0 ]; then
+        ok "maps and programs agree with libbpf"
+    else
+        no "maps or programs disagree with libbpf"
+        echo "$lout" | grep "^  " | head -20
+    fi
+    lget() { echo "$lout" | sed -n "s/^$1=\([0-9]*\)$/\1/p"; }
+    v=$(lget libbpf_opened)
+    if [ "${v:-0}" -ge 50 ]; then
+        ok "libbpf opened $v of the corpus objects"
+    else
+        no "libbpf opened only ${v:-0} objects; the comparison is near-vacuous"
+    fi
+    v=$(lget maps_compared)
+    if [ "${v:-0}" -ge 60 ]; then
+        ok "map comparison is non-vacuous ($v map records)"
+    else
+        no "map comparison covered only ${v:-0} records"
+    fi
+    v=$(lget progs_compared)
+    if [ "${v:-0}" -ge 100 ]; then
+        ok "program comparison is non-vacuous ($v programs)"
+    else
+        no "program comparison covered only ${v:-0} programs"
+    fi
+    # libbpf 1.0 removed legacy map sections. That refusal is the reason
+    # bpfdis's legacy reader has no oracle, and it is asserted rather than
+    # remembered, because if libbpf ever opened them the README would be
+    # wrong and the legacy path would suddenly be checkable.
+    if [ "$(lget libbpf_refused)" -gt 0 ]; then
+        ok "libbpf refused $(lget libbpf_refused) objects, legacy map sections among them"
+    else
+        no "libbpf refused nothing; the note about legacy maps needs re-measuring"
+    fi
+else
+    no "libbpf_probe did not build"; cat "$W/lp.err"
+fi
+
 # ----------------------------------------------------------------- exit codes
 note "exit status"
 "$BIN" >/dev/null 2>&1; [ $? -eq 2 ] && ok "no argument is a usage error (2)" \

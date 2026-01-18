@@ -518,3 +518,47 @@ impl Type {
         }
     }
 }
+
+impl Btf {
+    /// Resolve typedefs and qualifiers until something with a size is found.
+    ///
+    /// The depth limit is not decoration: a BTF type graph comes out of a
+    /// file and a typedef pointing at itself is two words to write.
+    pub fn size_of(&self, id: u32) -> Option<u64> {
+        self.size_of_depth(id, 0)
+    }
+
+    fn size_of_depth(&self, id: u32, depth: u32) -> Option<u64> {
+        if depth > 32 {
+            return None;
+        }
+        let t = self.by_id(id)?;
+        match t.kind {
+            KIND_INT | KIND_STRUCT | KIND_UNION | KIND_ENUM | KIND_ENUM64 | KIND_FLOAT
+            | KIND_DATASEC => Some(t.size_or_type as u64),
+            KIND_PTR => Some(8),
+            KIND_ARRAY => {
+                let e = self.size_of_depth(t.array_elem, depth + 1)?;
+                Some(e * t.array_nelems as u64)
+            }
+            KIND_TYPEDEF | KIND_VOLATILE | KIND_CONST | KIND_RESTRICT | KIND_TYPE_TAG => {
+                self.size_of_depth(t.size_or_type, depth + 1)
+            }
+            _ => None,
+        }
+    }
+
+    /// Follow typedefs and qualifiers without asking for a size.
+    pub fn strip(&self, mut id: u32) -> Option<&Type> {
+        for _ in 0..32 {
+            let t = self.by_id(id)?;
+            match t.kind {
+                KIND_TYPEDEF | KIND_VOLATILE | KIND_CONST | KIND_RESTRICT | KIND_TYPE_TAG => {
+                    id = t.size_or_type
+                }
+                _ => return Some(t),
+            }
+        }
+        None
+    }
+}

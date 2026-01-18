@@ -6,6 +6,7 @@ mod elf;
 mod insn;
 mod prog;
 mod btf;
+mod maps;
 
 use elf::Elf;
 use std::fmt::Write as _;
@@ -20,6 +21,8 @@ usage: bpfdis [MODE...] FILE
   -r, --relocs      relocations, resolved against the symbol table
   -d, --disasm      every executable section, one line per instruction
       --raw         with -d, also print the raw bytes of each instruction
+  -P, --progs       the programs libbpf would find: name, section, length
+  -m, --maps        map definitions, legacy and BTF-defined
   -b, --btf         the .BTF type section, in bpftool's own dump format
   -x, --hex         read hex-encoded instructions from stdin, one per line,
                     and decode each on its own: the raw-encoding entry point
@@ -37,11 +40,13 @@ struct Modes {
     disasm: bool,
     raw: bool,
     btf: bool,
+    maps: bool,
+    progs: bool,
 }
 
 impl Modes {
     fn any(&self) -> bool {
-        self.sections || self.symbols || self.relocs || self.disasm || self.btf
+        self.sections || self.symbols || self.relocs || self.disasm || self.btf || self.maps || self.progs
     }
 }
 
@@ -57,6 +62,8 @@ fn main() -> ExitCode {
             "-r" | "--relocs" => m.relocs = true,
             "-d" | "--disasm" => m.disasm = true,
             "-b" | "--btf" => m.btf = true,
+            "-m" | "--maps" => m.maps = true,
+            "-P" | "--progs" => m.progs = true,
             "-x" | "--hex" => hexmode = true,
             "--raw" => m.raw = true,
             "-A" | "--all" => {
@@ -65,6 +72,8 @@ fn main() -> ExitCode {
                 m.relocs = true;
                 m.disasm = true;
                 m.btf = true;
+                m.maps = true;
+                m.progs = true;
             }
             "-h" | "--help" => {
                 print!("{}", USAGE);
@@ -127,6 +136,53 @@ fn main() -> ExitCode {
     }
     if m.disasm {
         print_disasm(&mut o, &e, m.raw);
+    }
+    if m.progs {
+        // A program is a function in an executable section other than
+        // `.text`; `.text` holds the subprograms those entry points call.
+        // That is libbpf's rule, and `t/libbpfcmp.py` holds it to it.
+        let ps = prog::programs(&e);
+        let mut n = 0;
+        let mut body = String::new();
+        for p in &ps {
+            if p.name == ".text" {
+                continue;
+            }
+            for f in &p.funcs {
+                n += 1;
+                let _ = writeln!(
+                    body,
+                    "prog {} sec={} insns={}",
+                    f.name,
+                    p.name,
+                    f.end - f.start
+                );
+            }
+        }
+        let _ = writeln!(o, "progs: {}", n);
+        o.push_str(&body);
+    }
+    if m.maps {
+        let ms = maps::maps(&e);
+        let _ = writeln!(o, "maps: {}", ms.len());
+        for d in &ms {
+            let _ = writeln!(
+                o,
+                "map {} source={} type={} ({}) key_size={} value_size={} \
+                 max_entries={} flags={}",
+                d.name,
+                d.source,
+                d.mtype,
+                maps::map_type_name(d.mtype),
+                d.key_size,
+                d.value_size,
+                d.max_entries,
+                d.flags
+            );
+            for n in &d.notes {
+                let _ = writeln!(o, "  ! {}", n);
+            }
+        }
     }
     if m.btf {
         match e.section_by_name(".BTF") {

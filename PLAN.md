@@ -100,10 +100,17 @@ Ranked by how little of it we control.
    codebase again. Authority for BTF. Note that this bpftool was built with
    `libbfd: false, llvm: false`, so it has no instruction disassembler compiled
    in at all and cannot be an oracle for `-d` even with privilege.
-6. **`clang -target bpf -O2 -c`** (clang 19.1.7) and `llvm-mc` as an assembler,
+6. **libbpf 1.5 itself**, through `t/libbpf_probe.c`, which `dlopen`s
+   `libbpf.so.1` and calls `bpf_object__open_file`. Parsing needs no
+   privilege; it is `bpf_object__load` that does, and the probe never calls
+   it. There are no libbpf headers installed, so the twelve entry points are
+   declared from the published API and resolved by name, and a missing
+   symbol exits 2 rather than producing an empty comparison. Authority for
+   the map table and the program list.
+7. **`clang -target bpf -O2 -c`** (clang 19.1.7) and `llvm-mc` as an assembler,
    for the corpus. The corpus is hermetic: no `linux/bpf.h`, no libbpf headers,
    because neither is installed for the BPF target here.
-7. **Deliberate defects in bpfdis itself.** Each expected to turn a *named*
+8. **Deliberate defects in bpfdis itself.** Each expected to turn a *named*
    assertion red, with the survivors written down in the README.
 
 ## Non-goals
@@ -201,7 +208,11 @@ Ranked by how little of it we control.
 - [x] Relocation application: name the map or symbol inside the disassembly
       why: it is what makes the output readable, and it is the first place the
       ELF layer and the decoder have to agree about offsets.
-- [ ] Map definitions, both legacy `bpf_map_def` and BTF-defined `.maps`
+- [x] Map definitions, both legacy `bpf_map_def` and BTF-defined `.maps`,
+      plus the maps a loader creates for `.data`, `.rodata` and `.bss`
+      done: 80 map records and 152 programs agree with libbpf itself, which
+      parses an object without any privilege. The legacy form has NO oracle:
+      libbpf 1.0 removed support for it and refuses those objects outright.
       why: the modern form is a BTF type with pointer-to-array members encoding
       integers in array lengths, which is unreadable without a BTF decoder, and
       it is the form every current program uses.
