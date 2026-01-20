@@ -28,6 +28,8 @@ import sys
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from llvmbpf import assemble, norm, rawbytes  # noqa: E402
+import re as _re
+TGT = _re.compile(r"<([^<>]*)>\s*$")
 from readelfp import SEC_RE, SYM_RE  # noqa: E402
 
 MAXSHOW = 25
@@ -231,6 +233,7 @@ def main():
         bytes_differ=0, only_llvm=0, only_ours=0, sections=0,
         reloc_agree=0, reloc_differ=0, func_agree=0, func_differ=0,
         llvm_elided_zeros=0, llvm_cannot_read=0, allowed_roundtrip=0,
+        target_agree=0, target_differ=0,
     )
     allowed = dict((n, 0) for n, _ in ALLOWED)
     pending_diff = []
@@ -305,6 +308,22 @@ def main():
                                % (name, sec, idx, atext, braw))
                 elif norm(atext) == norm(btext):
                     counts["agree"] += 1
+                    # norm() drops the <sym+0xoff> annotation so the two
+                    # printers can be compared whole; the annotation is
+                    # LLVM's own branch-target computation and is the only
+                    # outside check the control-flow graph has, so it is
+                    # compared here on its own.
+                    ta, tb = TGT.search(atext), TGT.search(btext)
+                    if ta or tb:
+                        if ta and tb and ta.group(1) == tb.group(1):
+                            counts["target_agree"] += 1
+                        else:
+                            counts["target_differ"] += 1
+                            bad.append(
+                                "%s %s[%d]: branch target %r vs %r"
+                                % (name, sec, idx,
+                                   ta.group(1) if ta else None,
+                                   tb.group(1) if tb else None))
                 else:
                     hit = None
                     for rname, fn in ALLOWED:
@@ -344,7 +363,8 @@ def main():
     for k in ("sections", "agree", "allowed_roundtrip", "disagree", "we_refuse", "llvm_refuse",
               "both_refuse", "bytes_differ", "only_llvm", "only_ours",
               "reloc_agree", "reloc_differ", "func_agree", "func_differ",
-              "llvm_elided_zeros", "llvm_cannot_read"):
+              "llvm_elided_zeros", "llvm_cannot_read",
+              "target_agree", "target_differ"):
         print("%s=%d" % (k, counts[k]))
     for n, _ in ALLOWED:
         print("allowed_%s=%d" % (n.replace("-", "_"), allowed[n]))
@@ -354,7 +374,8 @@ def main():
         print("  ... and %d more" % (len(bad) - MAXSHOW))
     hard = (counts["disagree"] + counts["bytes_differ"] + counts["only_llvm"]
             + counts["only_ours"] + counts["we_refuse"] + counts["llvm_refuse"]
-            + counts["reloc_differ"] + counts["func_differ"])
+            + counts["reloc_differ"] + counts["func_differ"]
+            + counts["target_differ"])
     if counts["agree"] == 0:
         print("  compared nothing")
         return 1

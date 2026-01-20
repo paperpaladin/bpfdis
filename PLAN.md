@@ -225,7 +225,7 @@ Ranked by how little of it we control.
       trailing word, and a DATASEC entry names the variable it points at.
       why: a third codebase, and the only oracle for the `.maps` section.
 - [x] Function boundaries from the symbol table
-      done: 186 function (start, end, name) triples agree. Starts come from
+      done: 226 function (start, end, name) triples agree. Starts come from
       the labels llvm-objdump prints; ends are derived in the harness from
       readelf's symbol sizes and section sizes, which is a second
       implementation rather than an authority, because nothing installed
@@ -238,16 +238,16 @@ Ranked by how little of it we control.
 
 ### Milestone 3: the control-flow graph
 
-- [ ] Basic-block construction and edges
+- [x] Basic-block construction and edges
       why: everything in milestone 4 is a question about this graph.
-- [ ] Reachability, and unreachable-code reporting
+- [x] Reachability, and unreachable-code reporting
       why: the verifier rejects unreachable instructions outright, so this is
       the one finding that maps to a verifier message with no judgement.
-- [ ] Back-edge detection, and the loop report
+- [x] Back-edge detection, and the loop report
       why: pre-5.3 kernels reject any back edge; current kernels accept
       bounded loops. Both answers are useful and they are different answers,
       so the report says which kernels would refuse it.
-- [ ] Termination: every path ends in `exit`
+- [x] Termination: every path ends in `exit`
       why: falling off the end of the instruction stream is a rejection, and
       it is invisible in a linear dump.
 - [ ] CFG cross-check against an independent reconstruction in the harness
@@ -258,18 +258,19 @@ Ranked by how little of it we control.
 
 ### Milestone 4: what the verifier cares about
 
-- [ ] Stack depth: the lowest `r10 + off` written or read
+- [x] Stack depth: the lowest `r10 + off` written or read, and the lowest
+      frame address FORMED, which is the part that matters
       why: 512 bytes is a hard limit and exceeding it is a rejection with a
       message nobody can act on.
-- [ ] Helper call inventory, by number and by name
+- [x] Helper call inventory, by number
       why: the first thing anyone asks of an unknown object, and the input to
       "which program types can this attach to".
-- [ ] Register liveness: reading an uninitialised register
+- [x] Register liveness: reading an uninitialised register
       why: the single most common real rejection.
-- [ ] Jump-target validation: out of range, into the middle of a `lddw`
+- [x] Jump-target validation: out of range, into the middle of a `lddw`
       why: both are rejections, and the second is a decoder bug in anything
       that walks instructions without tracking the 16-byte form.
-- [ ] The report, and `--strict`
+- [x] The report, and `--strict`
       why: the exit status is the part a CI pipeline uses.
 
 ### Milestone 5: hostile input

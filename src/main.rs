@@ -7,6 +7,7 @@ mod insn;
 mod prog;
 mod btf;
 mod maps;
+mod cfg;
 
 use elf::Elf;
 use std::fmt::Write as _;
@@ -21,6 +22,9 @@ usage: bpfdis [MODE...] FILE
   -r, --relocs      relocations, resolved against the symbol table
   -d, --disasm      every executable section, one line per instruction
       --raw         with -d, also print the raw bytes of each instruction
+  -c, --cfg         basic blocks and control-flow edges, per function
+  -a, --analyse     the verifier-relevant report, per function
+      --strict      with -a, exit 3 if any finding would be a rejection
   -P, --progs       the programs libbpf would find: name, section, length
   -m, --maps        map definitions, legacy and BTF-defined
   -b, --btf         the .BTF type section, in bpftool's own dump format
@@ -42,11 +46,14 @@ struct Modes {
     btf: bool,
     maps: bool,
     progs: bool,
+    cfg: bool,
+    analyse: bool,
+    strict: bool,
 }
 
 impl Modes {
     fn any(&self) -> bool {
-        self.sections || self.symbols || self.relocs || self.disasm || self.btf || self.maps || self.progs
+        self.sections || self.symbols || self.relocs || self.disasm || self.btf || self.maps || self.progs || self.cfg || self.analyse
     }
 }
 
@@ -64,6 +71,9 @@ fn main() -> ExitCode {
             "-b" | "--btf" => m.btf = true,
             "-m" | "--maps" => m.maps = true,
             "-P" | "--progs" => m.progs = true,
+            "-c" | "--cfg" => m.cfg = true,
+            "-a" | "--analyse" | "--analyze" => m.analyse = true,
+            "--strict" => m.strict = true,
             "-x" | "--hex" => hexmode = true,
             "--raw" => m.raw = true,
             "-A" | "--all" => {
@@ -74,6 +84,8 @@ fn main() -> ExitCode {
                 m.btf = true;
                 m.maps = true;
                 m.progs = true;
+                m.cfg = true;
+                m.analyse = true;
             }
             "-h" | "--help" => {
                 print!("{}", USAGE);
@@ -197,8 +209,94 @@ fn main() -> ExitCode {
             None => eprintln!("bpfdis: {}: no .BTF section", path),
         }
     }
+    let mut rejects = 0usize;
+    if m.cfg || m.analyse {
+        rejects = print_analysis(&mut o, &e, m.cfg, m.analyse);
+    }
     emit(&o);
+    if m.strict && rejects > 0 {
+        return ExitCode::from(3);
+    }
     ExitCode::from(0)
+}
+
+/// The control-flow graph and the report, per function.
+///
+/// Returns the number of findings that would be a rejection, which is what
+/// `--strict` turns into an exit status.
+fn print_analysis(o: &mut String, e: &Elf, want_cfg: bool, want_report: bool) -> usize {
+    let mut rejects = 0usize;
+    for p in prog::programs(e) {
+        for f in &p.funcs {
+            // A function in `.text` is a subprogram: it is called rather
+            // than entered, so its argument registers arrive live.
+            let is_subprog = p.name == ".text";
+            let mut c = cfg::build(&p, f);
+            cfg::analyse(&mut c, &p, is_subprog);
+            let nedges: usize = c.blocks.iter().map(|b| b.succs.len()).sum();
+            let nreach = c.reachable.iter().filter(|&&r| r).count();
+            if want_cfg {
+                let _ = writeln!(
+                    o,
+                    "cfg {} {} blocks={} edges={} reachable={} insns={}",
+                    p.name,
+                    f.name,
+                    c.blocks.len(),
+                    nedges,
+                    nreach,
+                    c.insns_seen
+                );
+                for (bi, b) in c.blocks.iter().enumerate() {
+                    let mut ss: Vec<String> =
+                        b.succs.iter().map(|&s| c.blocks[s].start.to_string()).collect();
+                    ss.dedup();
+                    let _ = writeln!(
+                        o,
+                        "block {}..{} term={:?} reach={} succs={}",
+                        b.start,
+                        b.end,
+                        b.term,
+                        if c.reachable[bi] { 1 } else { 0 },
+                        if ss.is_empty() { "-".into() } else { ss.join(",") }
+                    );
+                }
+            }
+            if want_report {
+                let loops = c
+                    .problems
+                    .iter()
+                    .filter(|x| matches!(x, cfg::Problem::BackEdge { .. }))
+                    .count();
+                let helpers: Vec<String> =
+                    c.helpers.iter().map(|h| h.to_string()).collect();
+                let _ = writeln!(
+                    o,
+                    "analysis {} {} insns={} blocks={} stack={} stack8={} loops={} \
+                     calls={} helpers={}",
+                    p.name,
+                    f.name,
+                    c.insns_seen,
+                    c.blocks.len(),
+                    c.stack_bytes,
+                    (c.stack_bytes + 7) / 8 * 8,
+                    loops,
+                    c.calls.len(),
+                    if helpers.is_empty() {
+                        "-".to_string()
+                    } else {
+                        helpers.join(",")
+                    }
+                );
+                for pr in &c.problems {
+                    if pr.severity() == "reject" {
+                        rejects += 1;
+                    }
+                    let _ = writeln!(o, "  {}: {}", pr.severity(), pr.describe());
+                }
+            }
+        }
+    }
+    rejects
 }
 
 /// Write the whole report in one go.
@@ -323,6 +421,24 @@ fn print_disasm(o: &mut String, e: &Elf, raw: bool) {
                 );
                 fi += 1;
             }
+            // llvm-objdump annotates a jump with the symbol its target
+            // falls inside and the byte offset into it. That annotation is
+            // LLVM's own computation of the branch target, so printing the
+            // same thing gives the control-flow graph an oracle for every
+            // edge, which is otherwise the part of this program with no
+            // outside authority at all.
+            let tgt = match cfg::jump_target(i) {
+                Some(t) if t >= 0 => p.func_of(t as usize).map(|f| {
+                    let off = (t as usize - f.start) * 8;
+                    if off == 0 {
+                        format!(" <{}>", f.name)
+                    } else {
+                        format!(" <{}+{:#x}>", f.name, off)
+                    }
+                }),
+                _ => None,
+            };
+            let tgt = tgt.unwrap_or_default();
             let ann = match p.reloc_at(i.idx) {
                 Some(r) => format!("\t; {} {}", elf::r_bpf_name(r.rtype), r.sym_name),
                 None => String::new(),
@@ -334,14 +450,15 @@ fn print_disasm(o: &mut String, e: &Elf, raw: bool) {
                 }
                 let _ = writeln!(
                     o,
-                    "{:6}:\t{:<49}{}{}",
+                    "{:6}:\t{:<49}{}{}{}",
                     i.idx,
                     hex.trim_end(),
                     i.text(),
+                    tgt,
                     ann
                 );
             } else {
-                let _ = writeln!(o, "{:6}:\t{}{}", i.idx, i.text(), ann);
+                let _ = writeln!(o, "{:6}:\t{}{}{}", i.idx, i.text(), tgt, ann);
             }
         }
         if let Some(msg) = &p.tail_err {

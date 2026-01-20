@@ -110,7 +110,7 @@ else
     no "instruction comparison covered only ${agree:-0} instructions"
 fi
 for b in disagree we_refuse llvm_refuse bytes_differ only_llvm only_ours \
-         reloc_differ func_differ; do
+         reloc_differ func_differ target_differ; do
     v=$(dget $b)
     if [ "${v:-1}" -eq 0 ]; then
         ok "bucket $b is empty"
@@ -118,7 +118,7 @@ for b in disagree we_refuse llvm_refuse bytes_differ only_llvm only_ours \
         no "bucket $b holds $v instructions"
     fi
 done
-for f in reloc_agree func_agree llvm_cannot_read allowed_roundtrip; do
+for f in reloc_agree func_agree llvm_cannot_read allowed_roundtrip target_agree; do
     v=$(dget $f)
     if [ "${v:-0}" -gt 0 ]; then
         ok "$f is non-vacuous ($v records)"
@@ -217,6 +217,41 @@ if [ "${v:-0}" -ge 19 ]; then
 else
     no "the corpus reaches only ${v:-0} BTF kinds of 19"
 fi
+
+# -------------------------------- stack depth, against LLVM's own accounting
+note "oracle: clang -mllvm -bpf-stack-size, for the stack frame"
+kout=$(python3 "$HERE/stackcmp.py" "$BIN" "$W/obj" "$HERE/corpus")
+krc=$?
+echo "$kout" | grep -v "^  " | sed "s/^/     /"
+if [ $krc -eq 0 ]; then
+    ok "every stack depth is pinned between a limit clang refuses and one it accepts"
+else
+    no "a stack depth disagrees with clang"
+    echo "$kout" | grep "^  " | head -20
+fi
+kget() { echo "$kout" | sed -n "s/^$1=\([0-9]*\)$/\1/p"; }
+if [ "$(kget stack_nonzero_checked)" -ge 10 ] && [ "$(kget stack_zero_checked)" -ge 10 ]; then
+    ok "stack check covers $(kget stack_nonzero_checked) frames and $(kget stack_zero_checked) empty ones"
+else
+    no "the stack check is near-vacuous"
+fi
+
+# Two shapes clang never emits, and for which no oracle exists. The numbers
+# below are read off the five instructions in t/corpus/stackderived.s and
+# are asserted as hand-computed values, which is weaker than everything
+# else in this file and is why they are written out here rather than being
+# folded into the comparison above. They exist because two mutations
+# survived the whole compiled corpus: dropping the base register's own
+# frame offset, and letting a 32-bit move carry the frame-pointer fact.
+note "stack depth through a register that is not r10 (hand-computed, no oracle)"
+sa=$("$BIN" -a "$W/obj/stackderived.asm.o" 2>/dev/null \
+     | sed -n 's/^analysis \.text derived .*stack=\([0-9]*\) .*/\1/p')
+sb=$("$BIN" -a "$W/obj/stackderived.asm.o" 2>/dev/null \
+     | sed -n 's/^analysis \.text truncated .*stack=\([0-9]*\) .*/\1/p')
+[ "${sa:-}" = "32" ] && ok "a store at (r10 - 8) - 24 makes a 32-byte frame" \
+    || no "derived-base frame is ${sa:-missing}, expected 32"
+[ "${sb:-}" = "0" ] && ok "a 32-bit move of r10 does not produce a stack address" \
+    || no "truncated-pointer frame is ${sb:-missing}, expected 0"
 
 # ------------------------------------------ oracle 6: libbpf itself
 note "oracle: libbpf, for maps and programs"
