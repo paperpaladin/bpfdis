@@ -297,6 +297,25 @@ else
     no "libbpf_probe did not build"; cat "$W/lp.err"
 fi
 
+# ------------------------------------- the analysis: false positives, findings
+note "analysis: clang's output must be clean, and every finding must be reached"
+fout=$(python3 "$HERE/flowcheck.py" "$BIN" "$W/obj")
+frc=$?
+echo "$fout" | grep -v "^  " | sed "s/^/     /"
+if [ $frc -eq 0 ]; then
+    ok "no finding against any function clang produced, and all 6 findings reached"
+else
+    no "the analysis has a false positive or an unreached finding"
+    echo "$fout" | grep "^  " | head -20
+fi
+fget() { echo "$fout" | sed -n "s/^$1=\([0-9]*\)$/\1/p"; }
+v=$(fget compiled_functions)
+if [ "${v:-0}" -ge 200 ]; then
+    ok "the false-positive check covers $v compiled functions"
+else
+    no "the false-positive check covers only ${v:-0} functions"
+fi
+
 # ----------------------------------------------------------------- exit codes
 note "exit status"
 "$BIN" >/dev/null 2>&1; [ $? -eq 2 ] && ok "no argument is a usage error (2)" \

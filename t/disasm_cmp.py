@@ -162,6 +162,30 @@ ALLOWED = [
 ]
 
 
+GOTO = re.compile(r"goto ([-+]?\d+)$|^gotol ([-+]?\d+)$|^may_goto ([-+]?\d+)$")
+
+
+def out_of_section(text, idx, slots):
+    """True when the jump at slot `idx` leaves the section entirely."""
+    m = GOTO.search(text)
+    if not m or slots == 0:
+        return False
+    off = int(next(g for g in m.groups() if g is not None))
+    t = idx + 1 + off
+    return t < 0 or t >= slots
+
+
+def section_slots(obj):
+    out = {}
+    for line in subprocess.run(
+        ["readelf", "-SW", obj], capture_output=True, text=True
+    ).stdout.splitlines():
+        m = SEC_RE.match(line)
+        if m and "X" in (m.group(8) or ""):
+            out[m.group(2) or ""] = int(m.group(6), 16) // 8
+    return out
+
+
 def expected_funcs(obj):
     """{section: [(start_slot, end_slot, name)]} from readelf alone.
 
@@ -233,7 +257,7 @@ def main():
         bytes_differ=0, only_llvm=0, only_ours=0, sections=0,
         reloc_agree=0, reloc_differ=0, func_agree=0, func_differ=0,
         llvm_elided_zeros=0, llvm_cannot_read=0, allowed_roundtrip=0,
-        target_agree=0, target_differ=0,
+        target_agree=0, target_differ=0, target_out_of_section=0,
     )
     allowed = dict((n, 0) for n, _ in ALLOWED)
     pending_diff = []
@@ -255,6 +279,7 @@ def main():
                 bad.append("%s %s: functions %r vs %r"
                            % (obj.split("/")[-1], sec, x, y))
         name = obj.split("/")[-1]
+        secslots = section_slots(obj)
         # The relocations llvm-objdump interleaves into the disassembly are a
         # second, independent statement about which instruction each one
         # patches. readelf already agreed about the records; this agrees
@@ -317,6 +342,16 @@ def main():
                     if ta or tb:
                         if ta and tb and ta.group(1) == tb.group(1):
                             counts["target_agree"] += 1
+                        elif ta and not tb and out_of_section(
+                                norm(btext), idx, secslots.get(sec, 0)):
+                            # llvm-objdump names the nearest preceding
+                            # symbol whatever the offset, so a jump past the
+                            # end of the section is annotated as
+                            # `<outside+0x330>` in a section three
+                            # instructions long. bpfdis prints no symbol for
+                            # a target it cannot place and reports the jump
+                            # as out of range instead.
+                            counts["target_out_of_section"] += 1
                         else:
                             counts["target_differ"] += 1
                             bad.append(
@@ -364,7 +399,7 @@ def main():
               "both_refuse", "bytes_differ", "only_llvm", "only_ours",
               "reloc_agree", "reloc_differ", "func_agree", "func_differ",
               "llvm_elided_zeros", "llvm_cannot_read",
-              "target_agree", "target_differ"):
+              "target_agree", "target_differ", "target_out_of_section"):
         print("%s=%d" % (k, counts[k]))
     for n, _ in ALLOWED:
         print("allowed_%s=%d" % (n.replace("-", "_"), allowed[n]))
