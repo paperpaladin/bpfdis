@@ -484,6 +484,16 @@ impl State {
         }
         changed
     }
+    /// The frame offset a register holds, if any.
+    ///
+    /// Bounds-checked rather than indexed, because the register number
+    /// comes out of a four-bit field in the file and the kernel has eleven
+    /// registers. A corrupted object naming r15 reached three direct
+    /// indexes here and aborted the program; the robustness sweep found all
+    /// three on its first run.
+    fn get(&self, r: u8) -> Option<i64> {
+        self.fp.get(r as usize).copied().flatten()
+    }
     fn is_init(&self, r: u8) -> bool {
         (r as usize) < NREG && self.init & (1 << r) != 0
     }
@@ -602,7 +612,7 @@ fn need(st: &State, slot: usize, r: u8, ps: &mut Vec<Problem>) {
 
 /// A stack access through a register known to hold `fp + k`.
 fn touch(st: &State, base: u8, off: i16, size: u8, deepest: &mut i64) {
-    if let Some(k) = st.fp.get(base as usize).copied().flatten() {
+    if let Some(k) = st.get(base) {
         let lo = k + off as i64;
         // Reading below the frame pointer is what makes the frame deep; a
         // positive offset is into the caller's frame and is a rejection the
@@ -653,7 +663,7 @@ fn step(st: &mut State, ins: &Insn, deepest: &mut i64, ps: &mut Vec<Problem>) {
                     // A move keeps the frame-pointer fact; a sign-extending
                     // move or a 32-bit move does not, because it truncates.
                     let v = if *reg && *sx == 0 && *wide {
-                        st.fp[ins.src as usize]
+                        st.get(ins.src)
                     } else {
                         None
                     };
@@ -665,13 +675,13 @@ fn step(st: &mut State, ins: &Insn, deepest: &mut i64, ps: &mut Vec<Problem>) {
                 }
                 AluOp::Add if !*reg && *wide => {
                     need(st, slot, ins.dst, ps);
-                    let v = st.fp[ins.dst as usize].map(|k| k + ins.imm as i64);
+                    let v = st.get(ins.dst).map(|k| k + ins.imm as i64);
                     materialise(v, deepest);
                     st.set(ins.dst, v);
                 }
                 AluOp::Sub if !*reg && *wide => {
                     need(st, slot, ins.dst, ps);
-                    let v = st.fp[ins.dst as usize].map(|k| k - ins.imm as i64);
+                    let v = st.get(ins.dst).map(|k| k - ins.imm as i64);
                     materialise(v, deepest);
                     st.set(ins.dst, v);
                 }

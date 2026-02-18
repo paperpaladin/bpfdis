@@ -51,11 +51,31 @@ fn build_one(e: &Elf, s: &Section) -> Prog {
     let code = s.data(&e.file);
     let (insns, tail_err) = decode_all(code);
     let slots = code.len() / 8;
-    let mut slot_map = vec![None; slots + 1];
+    // Exactly `slots` entries, not `slots + 1`.
+    //
+    // METHOD's oversized-buffer rule has a Rust form and this was its one
+    // instance in the tree: a Vec one longer than the data it describes,
+    // indexed by a length that comes from the file. Rust bounds-checks
+    // every index, so the usual consequence of an off-by-one is a panic --
+    // but only if the buffer ends where the data ends. One spare element
+    // turns an index at `slots` into a quiet `None`, which every caller
+    // here reads as "that slot is the tail of a 16-byte load", and a jump
+    // one past the end of the section becomes a jump into a wide load.
+    // Wrong answer, no crash, nothing to see. `make overread` plants that
+    // read and requires it to abort.
+    let mut slot_map = vec![None; slots];
     for (i, ins) in insns.iter().enumerate() {
         if ins.idx < slot_map.len() {
             slot_map[ins.idx] = Some(i);
         }
+    }
+
+    #[cfg(bpfdis_plant_overread)]
+    {
+        // One element past the last slot. With `slot_map` sized to `slots`
+        // this is an out-of-bounds index and aborts; with one spare element
+        // it returns None and the program carries on with a wrong answer.
+        eprintln!("planted over-read: {:?}", slot_map[slots]);
     }
 
     let mut funcs: Vec<Func> = e
@@ -63,16 +83,21 @@ fn build_one(e: &Elf, s: &Section) -> Prog {
         .iter()
         .filter(|y| y.stype() == STT_FUNC && y.shndx as usize == s.idx)
         .map(|y| {
-            let start = (y.value / 8) as usize;
+            // A symbol value or size out of range is a corrupted object,
+            // not an impossible one, and `end < start` underflows wherever
+            // a caller computes a length. Both ends are clamped here, in
+            // the one place that builds a Func, rather than in each of the
+            // five places that subtract them.
+            let start = ((y.value / 8) as usize).min(slots);
             let end = if y.size > 0 {
-                start + (y.size / 8) as usize
+                start.saturating_add((y.size / 8) as usize)
             } else {
                 slots
             };
             Func {
                 name: y.name.clone(),
                 start,
-                end: end.min(slots),
+                end: end.clamp(start, slots),
                 global: y.bind() != 0,
                 first: slot_map.get(start).copied().flatten(),
             }
@@ -85,7 +110,7 @@ fn build_one(e: &Elf, s: &Section) -> Prog {
     for i in 0..funcs.len() {
         let next = funcs.get(i + 1).map(|f| f.start).unwrap_or(slots);
         if funcs[i].end > next {
-            funcs[i].end = next;
+            funcs[i].end = next.max(funcs[i].start);
         }
     }
     // A section with no function symbols is still one program.

@@ -275,13 +275,16 @@ Ranked by how little of it we control.
 
 ### Milestone 5: hostile input
 
-- [ ] Truncation sweep at every offset
-- [ ] Byte-corruption sweep inside each section
-- [ ] A hand-assembled object with a section header lying about its size
+- [x] Truncation sweep at every offset
+- [x] Byte-corruption sweep inside each section
+- [x] Section headers lying about their size, which is the half of this
+      that can be two-sided: a clang object keeps its section table at the
+      end of the file, so every truncation is refused at the header and
+      the truncation sweep is one-sided by construction
       why: the three ways a reader walks off the end, and in Rust each one is
       a panic rather than a silent read, so each one is visible if and only if
       the sweep looks at the exit status rather than at stdout.
-- [ ] The oversized-buffer blindness, in its Rust form
+- [x] The oversized-buffer blindness, in its Rust form
       why: METHOD records eighteen instances of a buffer larger than its data
       turning the sanitizer off. Rust's equivalent is a `Vec` with spare
       capacity handed to code that indexes by a separate length, and
