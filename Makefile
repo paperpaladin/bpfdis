@@ -35,8 +35,13 @@ overread:
 		exit 1; \
 	 fi
 
+# Not part of `make test`: it runs the whole suite once per mutant and takes
+# about twenty minutes. The numbers it prints are the ones in the README.
+mutants: all
+	python3 t/mutate.py
+
 clean:
 	$(CARGO) clean
 	rm -rf t/scratch t/corpus/*.o target/overread
 
-.PHONY: all test clean overread
+.PHONY: all test clean overread mutants
