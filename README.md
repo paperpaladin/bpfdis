@@ -252,10 +252,12 @@ is worth having and it is not the same as being right.
 **The control-flow graph has no external authority.** The decoder has LLVM.
 The graph has llvm-objdump's `<target>` annotations on branch instructions,
 477 of them, and nothing else. Block boundaries, edges and reachability are
-checked only against hand-written fixtures and against the requirement that
-clang's own output produce no finding. A second reconstruction in the harness
-is the next item in `PLAN.md`, and even that is a weaker check than an outside
-authority. This is the place where an error would be hardest to see.
+checked against a second graph in `t/cfgcmp.py`, built from llvm-objdump's
+text rather than from our decode: 232 functions, 1,014 blocks and 1,188 edges
+agree. That is a second implementation and not an authority, and it shares
+the understanding of the ISA that both were written from. The loop report and
+the stack figure are not in it at all. This is the place where an error would
+be hardest to see.
 
 **One vendor behind every instruction comparison.** llvm-objdump and llvm-mc
 are the same backend. GNU binutils has no BPF target on this machine and

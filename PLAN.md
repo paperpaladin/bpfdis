@@ -250,7 +250,14 @@ Ranked by how little of it we control.
 - [x] Termination: every path ends in `exit`
       why: falling off the end of the instruction stream is a rejection, and
       it is invisible in a linear dump.
-- [ ] CFG cross-check against an independent reconstruction in the harness
+- [x] CFG cross-check against an independent reconstruction in the harness
+      done: 232 functions, 1014 blocks and 1188 edges agree with a second
+      graph in t/cfgcmp.py, built from llvm-objdump's text. Two functions
+      are skipped and counted: llvm-objdump elides a run of zero bytes with
+      no instruction lines at all, and refuses three atomic encodings its
+      own assembler emits. The mutation that measures a jump offset from
+      the jump rather than from the instruction after it moves 123 of the
+      232.
       why: the decoder has LLVM. The graph has nothing, and saying so is
       better than pretending otherwise. A second implementation in another
       language, from the oracle's decode rather than ours, is a weaker check

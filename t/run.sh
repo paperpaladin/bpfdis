@@ -297,6 +297,41 @@ else
     no "libbpf_probe did not build"; cat "$W/lp.err"
 fi
 
+# ----------------------- the control-flow graph, against a second one in t/
+note "cfg: a second graph built from llvm-objdump's text, not from our decode"
+cout=$(python3 "$HERE/cfgcmp.py" "$BIN" "$W"/obj/*.o)
+crc=$?
+echo "$cout" | grep -v "^  " | sed "s/^/     /"
+if [ $crc -eq 0 ]; then
+    ok "every basic block, edge and reachability flag matches the second graph"
+else
+    no "the two control-flow graphs differ"
+    echo "$cout" | grep "^  " | head -20
+fi
+cget() { echo "$cout" | sed -n "s/^$1=\([0-9]*\)$/\1/p"; }
+v=$(cget cfg_funcs)
+if [ "${v:-0}" -ge 200 ]; then
+    ok "the graph comparison covers $v functions"
+else
+    no "the graph comparison covered only ${v:-0} functions"
+fi
+v=$(cget cfg_edges)
+if [ "${v:-0}" -ge 1000 ]; then
+    ok "the graph comparison is non-vacuous ($v edges)"
+else
+    no "the graph comparison covered only ${v:-0} edges"
+fi
+# llvm-objdump elides runs of zero bytes and refuses three atomic encodings
+# its own assembler emits, so a couple of corpus functions cannot be
+# reconstructed from its output at all. The count is asserted small rather
+# than zero: a skip that grows silently is a comparison quietly shrinking.
+v=$(cget cfg_skipped)
+if [ "${v:-99}" -le 4 ]; then
+    ok "only $v functions are unreadable in llvm-objdump's output"
+else
+    no "$v functions were skipped; llvm-objdump could not read them"
+fi
+
 # ------------------------------------- the analysis: false positives, findings
 note "analysis: clang's output must be clean, and every finding must be reached"
 fout=$(python3 "$HERE/flowcheck.py" "$BIN" "$W/obj")
