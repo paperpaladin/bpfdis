@@ -7,8 +7,8 @@
  * list, which nothing else installed here can supply. bpftool has it compiled
  * in but only exposes map names, through `gen skeleton`.
  *
- * There are no libbpf headers on this machine, only libbpf.so.1, so the dozen
- * entry points used here are declared from the published API and resolved
+ * There are no libbpf headers on this machine, only libbpf.so.1, so the
+ * fourteen entry points used here are declared from the published API and resolved
  * with dlopen. A missing or renamed symbol is reported and exits 2, never
  * silently skipped: a probe that prints nothing would be counted as a clean
  * run by anything reading its exit status.

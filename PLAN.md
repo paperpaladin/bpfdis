@@ -9,12 +9,16 @@ bpfdis [MODE...] FILE
   -y, --symbols     the symbol table
   -r, --relocs      relocations, resolved against the symbol table
   -d, --disasm      every executable section, one line per instruction
+      --raw         with -d, print the 8 or 16 raw bytes of each instruction
+  -c, --cfg         basic blocks and control-flow edges, per function
+  -a, --analyse     the verifier-relevant report, per function
+      --strict      with -a, exit 3 if any finding would be a rejection
+  -P, --progs       the programs libbpf would find: name, section, length
   -m, --maps        map definitions: legacy struct bpf_map_def and BTF-defined
   -b, --btf         the .BTF type section
-  -c, --cfg         basic blocks and control-flow edges, per program
-  -a, --analyse     the verifier-relevant report
+  -x, --hex         decode hex-encoded instructions from stdin, one per line
   -A, --all         all of the above
-      --raw         with -d, print the 8 or 16 raw bytes of each instruction
+  -h, --help        the usage text
 ```
 
 `FILE` is an ELF64 relocatable object for `EM_BPF` (machine 247), little-endian,
@@ -77,10 +81,12 @@ Ranked by how little of it we control.
 
 1. **The kernel verifier**, via `bpf(BPF_PROG_LOAD)`. This is the only true
    authority for "would this be rejected", and on this machine it is
-   **BLOCKED**. Measured, not assumed: `t/verifier_probe.c` loads a program the
-   verifier cannot reject (`r0 = 0; exit`) under six program types, and every
-   one returns `-1 EPERM`, the same errno as a program that is obviously
-   invalid. `/proc/sys/kernel/unprivileged_bpf_disabled` is `2` and
+   **BLOCKED**. Measured, not assumed: `t/verifier_probe.c` loads two programs
+   as `BPF_PROG_TYPE_SOCKET_FILTER`, one the verifier cannot reject
+   (`r0 = 0; exit`) and one it must (a single instruction with no `exit`
+   after it). Both return `-1 EPERM`. Identical errnos for a valid and an
+   invalid program is the proof that the refusal happened before the verifier
+   ran. `/proc/sys/kernel/unprivileged_bpf_disabled` is `2` and
    `CapEff` is `0000000000000000`. Repeated inside `unshare -Ur`: still EPERM.
    An EPERM is a refusal by the privilege check before the verifier runs, so it
    is not evidence about any program, and nothing in this repo may count it as
@@ -103,7 +109,7 @@ Ranked by how little of it we control.
 6. **libbpf 1.5 itself**, through `t/libbpf_probe.c`, which `dlopen`s
    `libbpf.so.1` and calls `bpf_object__open_file`. Parsing needs no
    privilege; it is `bpf_object__load` that does, and the probe never calls
-   it. There are no libbpf headers installed, so the twelve entry points are
+   it. There are no libbpf headers installed, so the fourteen entry points are
    declared from the published API and resolved by name, and a missing
    symbol exits 2 rather than producing an empty comparison. Authority for
    the map table and the program list.
