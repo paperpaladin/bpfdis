@@ -193,6 +193,43 @@ else
     no "the assembler round-trip rule never fired"
 fi
 
+# ------------------------------- the disassembler oracles that are not here
+#
+# Every instruction number in this suite comes from LLVM, and the README says
+# so in its what-does-not-work section. The two tools that could have been a
+# second opinion are measured here rather than remembered, because each of
+# these assertions is the kind that should turn red one day: a binutils with
+# a BPF target, or a bpftool built with a disassembler, would make a real
+# second authority available and the README would be wrong the moment it
+# arrived.
+note "the disassemblers this machine does not have"
+if objdump -d "$W"/obj/basic.v3.O2.o >/dev/null 2>"$W/od.err"; then
+    no "GNU objdump disassembled a BPF object; it is a second oracle now"
+elif grep -q "UNKNOWN" "$W/od.err"; then
+    ok "GNU binutils $(objdump --version | sed -n 's/^GNU objdump.* \([0-9.]*\)$/\1/p') has no BPF target: $(head -1 "$W/od.err")"
+else
+    no "GNU objdump refused a BPF object for an unexpected reason: $(head -1 "$W/od.err")"
+fi
+if [ -x /usr/sbin/bpftool ]; then
+    bf=$(/usr/sbin/bpftool -p version 2>/dev/null | sed -n 's/.*"libbfd": *\([a-z]*\).*/\1/p')
+    bl=$(/usr/sbin/bpftool -p version 2>/dev/null | sed -n 's/.*"llvm": *\([a-z]*\).*/\1/p')
+    if [ "${bf:-}" = "false" ] && [ "${bl:-}" = "false" ]; then
+        ok "bpftool was built with neither libbfd nor llvm, so it cannot disassemble"
+    else
+        no "bpftool reports libbfd=${bf:-?} llvm=${bl:-?}; it may disassemble now"
+    fi
+    # `prog dump xlated` takes id, tag, name or pinned and has no file form,
+    # so it needs a loaded program, and loading is what the privilege check
+    # refuses. Asking for the program list is the cheapest way to show it.
+    if /usr/sbin/bpftool prog list >/dev/null 2>"$W/bt.err"; then
+        no "bpftool can list loaded programs; prog dump xlated may be reachable"
+    else
+        ok "bpftool cannot reach a loaded program: $(head -1 "$W/bt.err")"
+    fi
+else
+    no "/usr/sbin/bpftool is missing; it is the only oracle for BTF"
+fi
+
 # ------------------------------------------- oracle 5: bpftool, for BTF
 note "oracle: bpftool btf dump (libbpf), line for line"
 bout=$(python3 "$HERE/btfcmp.py" "$BIN" "$W"/obj/*.o)
