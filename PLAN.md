@@ -214,6 +214,16 @@ Ranked by how little of it we control.
 - [x] Relocation application: name the map or symbol inside the disassembly
       why: it is what makes the output readable, and it is the first place the
       ELF layer and the decoder have to agree about offsets.
+- [x] Program type from the section name, against libbpf's own table
+      done: 91 rows, every one reached by a program in t/corpus/sections.c
+      and every one agreeing with `bpf_program__type`. The first run found
+      the rule wrong: libbpf matches some section names exactly and lets
+      others carry a suffix, so `kprobe/do_sys_open` is a KPROBE while
+      `socket/ingress` is nothing at all and only a bare `socket` is a
+      socket filter. Which is which was measured by compiling both forms of
+      every name, not inferred.
+      why: it is the first thing a loader decides about a program, and
+      libbpf will say whether we got it right without any privilege.
 - [x] Map definitions, both legacy `bpf_map_def` and BTF-defined `.maps`,
       plus the maps a loader creates for `.data`, `.rodata` and `.bss`
       done: 80 map records and 152 programs agree with libbpf itself, which

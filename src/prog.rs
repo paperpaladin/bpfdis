@@ -143,6 +143,141 @@ fn build_one(e: &Elf, s: &Section) -> Prog {
     }
 }
 
+/// Section name, whether it must match exactly, program type, type name.
+///
+/// A loader picks a program's type from the name of the section it is in.
+/// The numbers are the `bpf_prog_type` enumeration from the kernel's
+/// published uapi header, which is not installed for any target here; the
+/// names are libbpf's, and libbpf is the oracle for every row.
+/// t/corpus/sections.c holds one program per row and the suite fails if a
+/// row is not the one prog_type picks for one of them, because a row
+/// nothing exercises has nothing checking it.
+///
+/// The second column is the part that cannot be guessed. libbpf matches
+/// some names exactly and lets others carry a suffix, and which is which
+/// does not follow from the name: `kprobe/do_sys_open` is a KPROBE but
+/// `socket/ingress` is nothing at all, and `socket` alone is a socket
+/// filter. It was measured by compiling a program into both forms of every
+/// name and asking libbpf, not read off a pattern.
+///
+/// Longest match wins among the rows that match, which is what separates
+/// `cgroup/sock` from `cgroup/sock_create` and `xdp` from `xdp/devmap`.
+pub const SEC_TYPES: &[(&str, bool, u32, &str)] = &[
+    ("socket", true, 1, "SOCKET_FILTER"),
+    ("sk_reuseport/migrate", true, 21, "SK_REUSEPORT"),
+    ("sk_reuseport", true, 21, "SK_REUSEPORT"),
+    ("kprobe", false, 2, "KPROBE"),
+    ("kretprobe", false, 2, "KPROBE"),
+    ("kprobe.multi", false, 2, "KPROBE"),
+    ("kretprobe.multi", false, 2, "KPROBE"),
+    ("kprobe.session", false, 2, "KPROBE"),
+    ("uprobe", false, 2, "KPROBE"),
+    ("uretprobe", false, 2, "KPROBE"),
+    ("uprobe.s", false, 2, "KPROBE"),
+    ("uretprobe.s", false, 2, "KPROBE"),
+    ("uprobe.multi", false, 2, "KPROBE"),
+    ("uretprobe.multi", false, 2, "KPROBE"),
+    ("usdt", false, 2, "KPROBE"),
+    ("usdt.s", false, 2, "KPROBE"),
+    ("tracepoint", false, 5, "TRACEPOINT"),
+    ("tp", false, 5, "TRACEPOINT"),
+    ("raw_tracepoint", false, 17, "RAW_TRACEPOINT"),
+    ("raw_tp", false, 17, "RAW_TRACEPOINT"),
+    ("raw_tracepoint.w", false, 24, "RAW_TRACEPOINT_WRITABLE"),
+    ("raw_tp.w", false, 24, "RAW_TRACEPOINT_WRITABLE"),
+    ("xdp.frags/devmap", true, 6, "XDP"),
+    ("xdp/devmap", true, 6, "XDP"),
+    ("xdp.frags/cpumap", true, 6, "XDP"),
+    ("xdp/cpumap", true, 6, "XDP"),
+    ("xdp.frags", true, 6, "XDP"),
+    ("xdp", true, 6, "XDP"),
+    ("perf_event", true, 7, "PERF_EVENT"),
+    ("lwt_in", true, 10, "LWT_IN"),
+    ("lwt_out", true, 11, "LWT_OUT"),
+    ("lwt_xmit", true, 12, "LWT_XMIT"),
+    ("lwt_seg6local", true, 19, "LWT_SEG6LOCAL"),
+    ("lirc_mode2", true, 20, "LIRC_MODE2"),
+    ("cgroup_skb/ingress", true, 8, "CGROUP_SKB"),
+    ("cgroup_skb/egress", true, 8, "CGROUP_SKB"),
+    ("cgroup/skb", true, 8, "CGROUP_SKB"),
+    ("cgroup/sock_create", true, 9, "CGROUP_SOCK"),
+    ("cgroup/sock_release", true, 9, "CGROUP_SOCK"),
+    ("cgroup/sock", true, 9, "CGROUP_SOCK"),
+    ("cgroup/post_bind4", true, 9, "CGROUP_SOCK"),
+    ("cgroup/post_bind6", true, 9, "CGROUP_SOCK"),
+    ("cgroup/dev", true, 15, "CGROUP_DEVICE"),
+    ("cgroup/sysctl", true, 23, "CGROUP_SYSCTL"),
+    ("cgroup/getsockopt", true, 25, "CGROUP_SOCKOPT"),
+    ("cgroup/setsockopt", true, 25, "CGROUP_SOCKOPT"),
+    ("cgroup/bind4", true, 18, "CGROUP_SOCK_ADDR"),
+    ("cgroup/bind6", true, 18, "CGROUP_SOCK_ADDR"),
+    ("cgroup/connect4", true, 18, "CGROUP_SOCK_ADDR"),
+    ("cgroup/connect6", true, 18, "CGROUP_SOCK_ADDR"),
+    ("cgroup/connect_unix", true, 18, "CGROUP_SOCK_ADDR"),
+    ("cgroup/sendmsg4", true, 18, "CGROUP_SOCK_ADDR"),
+    ("cgroup/sendmsg6", true, 18, "CGROUP_SOCK_ADDR"),
+    ("cgroup/recvmsg4", true, 18, "CGROUP_SOCK_ADDR"),
+    ("cgroup/recvmsg6", true, 18, "CGROUP_SOCK_ADDR"),
+    ("cgroup/getpeername4", true, 18, "CGROUP_SOCK_ADDR"),
+    ("cgroup/getpeername6", true, 18, "CGROUP_SOCK_ADDR"),
+    ("cgroup/getsockname4", true, 18, "CGROUP_SOCK_ADDR"),
+    ("cgroup/getsockname6", true, 18, "CGROUP_SOCK_ADDR"),
+    ("sockops", true, 13, "SOCK_OPS"),
+    ("sk_skb/stream_parser", true, 14, "SK_SKB"),
+    ("sk_skb/stream_verdict", true, 14, "SK_SKB"),
+    ("sk_skb", true, 14, "SK_SKB"),
+    ("sk_msg", true, 16, "SK_MSG"),
+    ("classifier", true, 3, "SCHED_CLS"),
+    ("tc/ingress", true, 3, "SCHED_CLS"),
+    ("tc/egress", true, 3, "SCHED_CLS"),
+    ("tc", true, 3, "SCHED_CLS"),
+    ("tcx/ingress", true, 3, "SCHED_CLS"),
+    ("tcx/egress", true, 3, "SCHED_CLS"),
+    ("netkit/primary", true, 3, "SCHED_CLS"),
+    ("netkit/peer", true, 3, "SCHED_CLS"),
+    ("action", true, 4, "SCHED_ACT"),
+    ("sk_lookup", true, 30, "SK_LOOKUP"),
+    ("flow_dissector", true, 22, "FLOW_DISSECTOR"),
+    ("syscall", true, 31, "SYSCALL"),
+    ("netfilter", true, 32, "NETFILTER"),
+    ("lsm", false, 29, "LSM"),
+    ("lsm.s", false, 29, "LSM"),
+    ("fentry", false, 26, "TRACING"),
+    ("fexit", false, 26, "TRACING"),
+    ("fmod_ret", false, 26, "TRACING"),
+    ("fentry.s", false, 26, "TRACING"),
+    ("fexit.s", false, 26, "TRACING"),
+    ("fmod_ret.s", false, 26, "TRACING"),
+    ("tp_btf", false, 26, "TRACING"),
+    ("iter", false, 26, "TRACING"),
+    ("iter.s", false, 26, "TRACING"),
+    ("freplace", false, 28, "EXT"),
+    ("struct_ops", false, 27, "STRUCT_OPS"),
+    ("struct_ops.s", false, 27, "STRUCT_OPS"),
+];
+
+
+/// The program type a loader would give a section with this name.
+///
+/// Returns 0 UNSPEC for a name no row matches. That is not the same as
+/// libbpf's behaviour, which refuses to open the object; bpfdis reads files
+/// nothing will load, so it says what it knows and prints UNSPEC for the
+/// rest.
+pub fn prog_type(sec: &str) -> (u32, &'static str) {
+    let mut best: Option<&(&str, bool, u32, &str)> = None;
+    for row in SEC_TYPES {
+        let hit = sec == row.0
+            || (!row.1
+                && sec.len() > row.0.len()
+                && sec.starts_with(row.0)
+                && sec.as_bytes()[row.0.len()] == b'/');
+        if hit && best.map_or(true, |b| row.0.len() > b.0.len()) {
+            best = Some(row);
+        }
+    }
+    best.map(|r| (r.2, r.3)).unwrap_or((0, "UNSPEC"))
+}
+
 pub fn programs(e: &Elf) -> Vec<Prog> {
     e.text_sections().into_iter().map(|s| build_one(e, s)).collect()
 }

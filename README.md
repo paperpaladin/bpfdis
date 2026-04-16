@@ -55,8 +55,9 @@ section headers, symbols and relocations.
 is the authority for BTF, compared line for line against our own `-b`.
 
 `libbpf 1.5` itself, through `t/libbpf_probe.c`, which `dlopen`s `libbpf.so.1`
-and calls `bpf_object__open_file`. Parsing needs no privilege; it is
-`bpf_object__load` that does, and the probe never calls it. There are no
+and calls `bpf_object__open_file`. It is the authority for the map table, the
+program list, and the program type each section name implies. Parsing needs no
+privilege; it is `bpf_object__load` that does, and the probe never calls it. There are no
 libbpf headers installed, so the fourteen entry points are declared from the
 published API and resolved by name, and a missing symbol exits 2 rather than
 producing an empty comparison.
@@ -122,22 +123,24 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 54 passed, 0 failed |
-| corpus objects built | 76 from 13 sources |
-| instructions against llvm-objdump | 3,655 compared, 3,655 same, 0 differ |
+| assertions | 62 passed, 0 failed |
+| corpus objects built | 77 from 14 sources |
+| instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |
 | of those, refused by both | 0 |
 | of those, llvm-objdump refused and bpfdis decoded | 3 |
 | branch targets against llvm-objdump's symbol annotation | 477 agree, 0 differ |
 | relocation placements inside the disassembly | 168 agree, 0 differ |
-| function boundaries | 234 agree, 0 differ |
+| function boundaries | 325 agree, 0 differ |
 | deliberate divergences, allow-listed with their encoding | 48 |
 | encodings swept against llvm-mc | 24,279 |
-| ELF records against readelf | 2,166 sections, 1,438 symbols, 8,204 relocations, 0 differ |
-| BTF against bpftool | 1,992 type records, 4,120 lines, 0 differ, all 19 kinds reached |
-| maps and programs against libbpf | 80 maps, 158 programs, 0 differ |
-| stack frames against clang | 22 nonzero and 34 empty, 0 wrong |
-| functions of clang's own output with no finding against them | 224 |
+| ELF records against readelf | 2,282 sections, 1,632 symbols, 8,955 relocations, 0 differ |
+| BTF against bpftool | 2,181 type records, 4,401 lines, 0 differ, all 19 kinds reached |
+| maps and programs against libbpf | 80 maps, 249 programs, 0 differ |
+| program types against libbpf | all 91 section-name rows reached, 0 differ |
+| control-flow graphs against a second graph | 323 functions, 1,105 blocks, 1,188 edges, 0 differ |
+| stack frames against clang | 22 nonzero and 125 empty, 0 wrong |
+| functions of clang's own output with no finding against them | 315 |
 | malformed inputs | 5,536 run, 0 crashed, 0 hung |
 
 Refusals are counted apart from disagreements everywhere, because the two need
@@ -253,7 +256,7 @@ is worth having and it is not the same as being right.
 The graph has llvm-objdump's `<target>` annotations on branch instructions,
 477 of them, and nothing else. Block boundaries, edges and reachability are
 checked against a second graph in `t/cfgcmp.py`, built from llvm-objdump's
-text rather than from our decode: 232 functions, 1,014 blocks and 1,188 edges
+text rather than from our decode: 323 functions, 1,105 blocks and 1,188 edges
 agree. That is a second implementation and not an authority, and it shares
 the understanding of the ISA that both were written from. The loop report and
 the stack figure are not in it at all. This is the place where an error would
@@ -282,10 +285,6 @@ patched to depends on the BTF of a running kernel, which is not read.
 **No big-endian BPF and no 32-bit ELF.** Both are refused at the header check
 and both are stated non-goals. The refusal is tested; the formats are not
 implemented.
-
-**Program types are not reported.** libbpf infers a program type from the
-section name and `t/libbpf_probe.c` already prints it; bpfdis prints the
-section name and leaves the reader to make the inference.
 
 **Helper calls are reported by number only.** `-a` lists the helper numbers a
 function calls. The number-to-name table is in `linux/bpf.h`, which is not

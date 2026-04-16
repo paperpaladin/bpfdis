@@ -160,13 +160,16 @@ fn main() -> ExitCode {
             if p.name == ".text" {
                 continue;
             }
+            let (ty, tyname) = prog::prog_type(&p.name);
             for f in &p.funcs {
                 n += 1;
                 let _ = writeln!(
                     body,
-                    "prog {} sec={} insns={}",
+                    "prog {} sec={} type={} ({}) insns={}",
                     f.name,
                     p.name,
+                    ty,
+                    tyname,
                     f.end - f.start
                 );
             }

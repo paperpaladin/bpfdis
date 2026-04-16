@@ -52,7 +52,12 @@ def def_lines(src, names):
     lines = open(src).read().splitlines()
     out = {}
     for n in names:
-        pat = re.compile(r"\b%s\s*\(" % re.escape(n))
+        # A definition is `name(`, but t/corpus/sections.c defines its
+        # programs through a macro, where the name is the last argument and
+        # so is followed by `)`. Both forms count; a function whose name
+        # appears nowhere is reported rather than skipped, because an
+        # unlocated function is one this check silently stopped covering.
+        pat = re.compile(r"\b%s\s*[()]" % re.escape(n))
         for i, l in enumerate(lines):
             if pat.search(l) and not l.lstrip().startswith(("*", "//")):
                 out[n] = i + 1

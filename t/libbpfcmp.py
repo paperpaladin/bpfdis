@@ -28,7 +28,13 @@ OURMAP = re.compile(
     r"^map (\S+) source=(\S+) type=(\d+) \(\S+\) key_size=(\d+) "
     r"value_size=(\d+) max_entries=(\d+) flags=(\d+)$"
 )
-OURPROG = re.compile(r"^prog (\S+) sec=(\S+) insns=(\d+)$")
+OURPROG = re.compile(r"^prog (\S+) sec=(\S+) type=(\d+) \(\S+\) insns=(\d+)$")
+# The section-name table lives in the Rust source and is read back out of it
+# here. Deriving the row list from the code rather than restating it means a
+# row added without a program in t/corpus/sections.c to reach it turns the
+# suite red, instead of sitting in the table with nothing checking it.
+TABLEROW = re.compile(
+    r'^\s*\("([^"]+)",\s*(true|false),\s*(\d+),\s*"([A-Z_0-9]+)"\),$')
 
 
 def core_name(n):
@@ -48,11 +54,36 @@ def core_name(n):
     return n
 
 
+def table_rows(src):
+    """[(name, exact, type, type name)] read out of src/prog.rs."""
+    rows = []
+    inside = False
+    for line in open(src):
+        if line.startswith("pub const SEC_TYPES"):
+            inside = True
+            continue
+        if inside:
+            if line.startswith("]"):
+                break
+            m = TABLEROW.match(line)
+            if m:
+                rows.append((m.group(1), m.group(2) == "true",
+                             int(m.group(3)), m.group(4)))
+    return rows
+
+
+def matches(sec, row):
+    """The rule prog_type uses: exact, or, for a prefix row, name then '/'."""
+    name, exact = row[0], row[1]
+    return sec == name or (not exact and sec.startswith(name + "/"))
+
+
 def main():
-    probe, bpfdis = sys.argv[1], sys.argv[2]
-    objs = sys.argv[3:]
+    probe, bpfdis, src = sys.argv[1], sys.argv[2], sys.argv[3]
+    objs = sys.argv[4:]
     opened = refused = 0
     maps_cmp = maps_differ = progs_cmp = progs_differ = 0
+    reached = set()
     bad = []
     for obj in objs:
         p = subprocess.run([probe, obj], capture_output=True, text=True)
@@ -73,7 +104,8 @@ def main():
                 continue
             m = PROGRE.match(l)
             if m:
-                want_progs.append((m.group(1), m.group(2), int(m.group(4))))
+                want_progs.append((m.group(1), m.group(2), int(m.group(3)),
+                                   int(m.group(4))))
         q = subprocess.run([bpfdis, "-m", "-P", obj], capture_output=True, text=True)
         got_maps, got_progs = [], []
         for l in q.stdout.splitlines():
@@ -86,7 +118,9 @@ def main():
                 continue
             m = OURPROG.match(l)
             if m:
-                got_progs.append((m.group(1), m.group(2), int(m.group(3))))
+                got_progs.append((m.group(1), m.group(2), int(m.group(3)),
+                                  int(m.group(4))))
+                reached.add(m.group(2))
         name = obj.split("/")[-1]
         for what, want, got in (
             ("maps", sorted(want_maps), sorted(got_maps)),
@@ -114,9 +148,32 @@ def main():
     print("maps_differ=%d" % maps_differ)
     print("progs_compared=%d" % progs_cmp)
     print("progs_differ=%d" % progs_differ)
+    # Every row of the table must be reached by a section in the corpus, or
+    # it is an entry with no oracle. The longest-match rule means a row can
+    # be shadowed by a longer one, so a row counts as reached only when
+    # prog_type would actually have picked it.
+    rows = table_rows(src)
+    unreached = []
+    for row in rows:
+        hit = False
+        for sec in reached:
+            if not matches(sec, row):
+                continue
+            best = max((r[0] for r in rows if matches(sec, r)), key=len)
+            if best == row[0]:
+                hit = True
+                break
+        if not hit:
+            unreached.append(row[0])
+    print("sectype_rows=%d" % len(rows))
+    print("sectype_unreached=%d" % len(unreached))
+    for u in unreached:
+        bad.append("section-name table row %r is reached by no corpus section"
+                   % u)
     for b in bad:
         print("  " + b)
-    return 1 if (maps_differ or progs_differ or maps_cmp == 0 or progs_cmp == 0) else 0
+    return 1 if (maps_differ or progs_differ or maps_cmp == 0
+                 or progs_cmp == 0 or unreached) else 0
 
 
 if __name__ == "__main__":

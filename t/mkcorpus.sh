@@ -9,6 +9,15 @@ mkdir -p "$OUT"
 built=0
 for src in "$HERE"/corpus/*.c; do
     b=$(basename "$src" .c)
+    # sections.c is 91 copies of the same two instructions, one per row of
+    # the section-name table. Building it at every -mcpu and -O level would
+    # add 1456 identical instructions to the disassembly comparison and make
+    # that number look like variety it does not have, so it is built once.
+    if [ "$b" = sections ]; then
+        o="$OUT/$b.v3.O2.o"
+        clang -target bpf -mcpu=v3 -O2 -g -c "$src" -o "$o" && built=$((built+1))
+        continue
+    fi
     for cpu in v1 v2 v3 v4; do
         for opt in O2 O1; do
             o="$OUT/$b.$cpu.$opt.o"

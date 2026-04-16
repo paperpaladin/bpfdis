@@ -293,7 +293,8 @@ sb=$("$BIN" -a "$W/obj/stackderived.asm.o" 2>/dev/null \
 # ------------------------------------------ oracle 6: libbpf itself
 note "oracle: libbpf, for maps and programs"
 if cc -O1 -o "$W/lp" "$HERE/libbpf_probe.c" -ldl 2>"$W/lp.err"; then
-    lout=$(python3 "$HERE/libbpfcmp.py" "$W/lp" "$BIN" "$W"/obj/*.o)
+    lout=$(python3 "$HERE/libbpfcmp.py" "$W/lp" "$BIN" "$ROOT/src/prog.rs" \
+                   "$W"/obj/*.o)
     lrc=$?
     echo "$lout" | grep -v "^  " | sed "s/^/     /"
     if [ $lrc -eq 0 ]; then
@@ -329,6 +330,16 @@ if cc -O1 -o "$W/lp" "$HERE/libbpf_probe.c" -ldl 2>"$W/lp.err"; then
         ok "libbpf refused $(lget libbpf_refused) objects, legacy map sections among them"
     else
         no "libbpf refused nothing; the note about legacy maps needs re-measuring"
+    fi
+    # Every row of the section-name table in src/prog.rs has to be reached
+    # by a section in the corpus. A row nothing exercises is a number nobody
+    # checked, and this table is transcribed from a header that is not
+    # installed here, so it is exactly where a transcription error lives.
+    v=$(lget sectype_unreached)
+    if [ "${v:-1}" -eq 0 ]; then
+        ok "all $(lget sectype_rows) section-name table rows are reached and agree with libbpf"
+    else
+        no "$v section-name table rows are reached by nothing in the corpus"
     fi
 else
     no "libbpf_probe did not build"; cat "$W/lp.err"
