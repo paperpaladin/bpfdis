@@ -364,7 +364,11 @@ fn back_edges(cfg: &mut Cfg) {
     const GREY: u8 = 1;
     const BLACK: u8 = 2;
     let mut colour = vec![WHITE; n];
-    let mut found = Vec::new();
+    // Annotated rather than inferred so that deleting the one push below
+    // still compiles. t/mutate.py does exactly that, and a mutant the
+    // compiler rejects says nothing about whether the suite would have
+    // caught it.
+    let mut found: Vec<(usize, usize)> = Vec::new();
     // Iterative, because a function can have more blocks than the stack has
     // frames and the input is a file.
     let mut stack: Vec<(usize, usize)> = vec![(0, 0)];

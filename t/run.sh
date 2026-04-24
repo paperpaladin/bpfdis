@@ -341,6 +341,14 @@ if cc -O1 -o "$W/lp" "$HERE/libbpf_probe.c" -ldl 2>"$W/lp.err"; then
     else
         no "$v section-name table rows are reached by nothing in the corpus"
     fi
+    # prog_type returns the first row that matches, so the table has to be
+    # unambiguous for that to be the right answer.
+    v=$(lget sectype_ambiguous)
+    if [ "${v:-1}" -eq 0 ]; then
+        ok "no corpus section matches two section-name table rows"
+    else
+        no "$v corpus sections match more than one table row"
+    fi
 else
     no "libbpf_probe did not build"; cat "$W/lp.err"
 fi

@@ -123,7 +123,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 62 passed, 0 failed |
+| assertions | 63 passed, 0 failed |
 | corpus objects built | 77 from 14 sources |
 | instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |

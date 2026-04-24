@@ -165,15 +165,28 @@ def main():
                 break
         if not hit:
             unreached.append(row[0])
+    # prog_type returns the FIRST matching row, which is only right while no
+    # two rows can match one name. That is a property of the table, so it is
+    # asserted over every section the corpus holds rather than assumed: a row
+    # added later that shadows another turns this red instead of quietly
+    # making the answer depend on the order of the array.
+    ambiguous = []
+    for sec in sorted(reached):
+        hits = [r[0] for r in rows if matches(sec, r)]
+        if len(hits) > 1:
+            ambiguous.append("%s matches %d table rows: %s"
+                             % (sec, len(hits), ", ".join(hits)))
     print("sectype_rows=%d" % len(rows))
     print("sectype_unreached=%d" % len(unreached))
+    print("sectype_ambiguous=%d" % len(ambiguous))
     for u in unreached:
         bad.append("section-name table row %r is reached by no corpus section"
                    % u)
+    bad.extend(ambiguous)
     for b in bad:
         print("  " + b)
     return 1 if (maps_differ or progs_differ or maps_cmp == 0
-                 or progs_cmp == 0 or unreached) else 0
+                 or progs_cmp == 0 or unreached or ambiguous) else 0
 
 
 if __name__ == "__main__":

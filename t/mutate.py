@@ -151,6 +151,15 @@ MUTANTS = [
      "                        st.get(ins.src)", "                        st.fp[ins.src as usize]"),
     ("cfg: back edges not detected", "src/cfg.rs",
      "                GREY => found.push((b, s)),", "                GREY => {}"),
+
+    ("sectype: every table row matches as a prefix", "src/prog.rs",
+     "            || (!row.1\n", "            || (true\n"),
+    ("sectype: kprobe sections typed as tracepoints", "src/prog.rs",
+     "    (\"kprobe\", false, 2, \"KPROBE\"),",
+     "    (\"kprobe\", false, 5, \"TRACEPOINT\"),"),
+    ("sectype: an exact row is read as a prefix row", "src/prog.rs",
+     "    (\"socket\", true, 1, \"SOCKET_FILTER\"),",
+     "    (\"socket\", false, 1, \"SOCKET_FILTER\"),"),
 ]
 
 

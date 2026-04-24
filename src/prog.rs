@@ -160,8 +160,12 @@ fn build_one(e: &Elf, s: &Section) -> Prog {
 /// filter. It was measured by compiling a program into both forms of every
 /// name and asking libbpf, not read off a pattern.
 ///
-/// Longest match wins among the rows that match, which is what separates
-/// `cgroup/sock` from `cgroup/sock_create` and `xdp` from `xdp/devmap`.
+/// No two rows can match the same section name, so the first hit is the
+/// answer and there is no tie to break. That is a property of the table
+/// rather than of the lookup, so the harness asserts it over every section
+/// in the corpus rather than this comment claiming it. A tiebreak was
+/// written here first, and the mutation that removed it survived the whole
+/// suite, which is how the dead branch was found.
 pub const SEC_TYPES: &[(&str, bool, u32, &str)] = &[
     ("socket", true, 1, "SOCKET_FILTER"),
     ("sk_reuseport/migrate", true, 21, "SK_REUSEPORT"),
@@ -264,18 +268,17 @@ pub const SEC_TYPES: &[(&str, bool, u32, &str)] = &[
 /// nothing will load, so it says what it knows and prints UNSPEC for the
 /// rest.
 pub fn prog_type(sec: &str) -> (u32, &'static str) {
-    let mut best: Option<&(&str, bool, u32, &str)> = None;
     for row in SEC_TYPES {
         let hit = sec == row.0
             || (!row.1
                 && sec.len() > row.0.len()
                 && sec.starts_with(row.0)
                 && sec.as_bytes()[row.0.len()] == b'/');
-        if hit && best.map_or(true, |b| row.0.len() > b.0.len()) {
-            best = Some(row);
+        if hit {
+            return (row.2, row.3);
         }
     }
-    best.map(|r| (r.2, r.3)).unwrap_or((0, "UNSPEC"))
+    (0, "UNSPEC")
 }
 
 pub fn programs(e: &Elf) -> Vec<Prog> {
