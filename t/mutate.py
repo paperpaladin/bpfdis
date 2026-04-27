@@ -160,6 +160,30 @@ MUTANTS = [
     ("sectype: an exact row is read as a prefix row", "src/prog.rs",
      "    (\"socket\", true, 1, \"SOCKET_FILTER\"),",
      "    (\"socket\", false, 1, \"SOCKET_FILTER\"),"),
+
+    ("btfext: insn_off read as an instruction index, not a byte offset",
+     "src/btfext.rs",
+     "                    \"line_info {} slot={} {}:{}:{}\",\n"
+     "                    s.name,\n                    r.insn_off / 8,",
+     "                    \"line_info {} slot={} {}:{}:{}\",\n"
+     "                    s.name,\n                    r.insn_off,"),
+    ("btfext: the line and column halves of line_col swapped", "src/btfext.rs",
+     "                    line: line_col >> 10,\n                    col: line_col & 0x3ff,",
+     "                    line: line_col & 0x3ff,\n                    col: line_col >> 10,"),
+    ("btfext: records advanced by the fields read, not the declared size",
+     "src/btfext.rs",
+     "            let raw = c.take(rec_size as usize)?;",
+     "            let raw = c.take(8)?;"),
+    ("btfext: the file name and the source text strings swapped",
+     "src/btfext.rs",
+     "                let file = c.u32()?;\n                let text = c.u32()?;",
+     "                let text = c.u32()?;\n                let file = c.u32()?;"),
+    ("btfext: func_info type id read from the offset field", "src/btfext.rs",
+     "                Ok(FuncInfo {\n                    insn_off: c.u32()?,\n"
+     "                    type_id: c.u32()?,\n                })",
+     "                let v = c.u32()?;\n                let _ = c.u32()?;\n"
+     "                Ok(FuncInfo {\n                    insn_off: v,\n"
+     "                    type_id: v,\n                })"),
 ]
 
 

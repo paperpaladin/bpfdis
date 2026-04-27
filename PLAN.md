@@ -240,6 +240,19 @@ Ranked by how little of it we control.
       and not UNSIGNED, FUNC keeps its linkage in vlen rather than in a
       trailing word, and a DATASEC entry names the variable it points at.
       why: a third codebase, and the only oracle for the `.maps` section.
+- [x] `.BTF.ext`: func_info, line_info and the CO-RE relocation table, `-e`
+      done: 315 func_info records over 73 objects, each one's BTF type id
+      resolved against bpftool's dump and required to name the ELF symbol
+      readelf puts at that instruction; and 1903 line_info records against
+      the DWARF line table that `llvm-objdump -dl` prints, which clang emits
+      through a different back end into a different section. 315 function
+      entries are counted separately, because BTF.ext records the line of
+      the declaration there and DWARF the line of the opening brace. No
+      corpus object has a CO-RE relocation, so that table is decoded and
+      unexercised, and the count sits in the output at zero.
+      why: `insn_off` is a byte offset and everything else in this tree
+      counts slots, which is the kind of mistake that is invisible at the
+      first instruction of every function and wrong everywhere else.
 - [x] Function boundaries from the symbol table
       done: 226 function (start, end, name) triples agree. Starts come from
       the labels llvm-objdump prints; ends are derived in the harness from

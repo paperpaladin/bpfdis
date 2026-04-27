@@ -255,6 +255,47 @@ else
     no "the corpus reaches only ${v:-0} BTF kinds of 19"
 fi
 
+# --------------------------------- .BTF.ext, against bpftool, readelf, DWARF
+note "oracle: bpftool types, readelf symbols and DWARF lines, for .BTF.ext"
+xout=$(python3 "$HERE/btfextcmp.py" "$BIN" "$W"/obj/*.o)
+xrc=$?
+echo "$xout" | grep -v "^  " | sed "s/^/     /"
+if [ $xrc -eq 0 ]; then
+    ok "every func_info and line_info record agrees with another reader"
+else
+    no ".BTF.ext records disagree with bpftool, readelf or DWARF"
+    echo "$xout" | grep "^  " | head -20
+fi
+xget() { echo "$xout" | sed -n "s/^$1=\([0-9]*\)$/\1/p"; }
+v=$(xget func_info_compared)
+if [ "${v:-0}" -ge 200 ]; then
+    ok "func_info comparison is non-vacuous ($v records)"
+else
+    no "func_info comparison covered only ${v:-0} records"
+fi
+v=$(xget line_info_compared)
+if [ "${v:-0}" -ge 1000 ]; then
+    ok "line_info comparison is non-vacuous ($v records against DWARF)"
+else
+    no "line_info comparison covered only ${v:-0} records"
+fi
+# Every line_info record must land on an instruction DWARF also has a line
+# for. A record DWARF says nothing about is not a disagreement, but it is a
+# record this comparison did not check, so it is counted and required to
+# stay at zero rather than being left to grow unseen.
+v=$(xget line_info_no_dwarf)
+if [ "${v:-1}" -eq 0 ]; then
+    ok "no line_info record falls on an instruction DWARF has no line for"
+else
+    no "$v line_info records are at instructions DWARF says nothing about"
+fi
+v=$(xget line_info_entry)
+if [ "${v:-0}" -gt 0 ]; then
+    ok "$v function entries where BTF.ext names the declaration and DWARF the brace"
+else
+    no "no function entry was compared; the declaration-line rule is untested"
+fi
+
 # -------------------------------- stack depth, against LLVM's own accounting
 note "oracle: clang -mllvm -bpf-stack-size, for the stack frame"
 kout=$(python3 "$HERE/stackcmp.py" "$BIN" "$W/obj" "$HERE/corpus")

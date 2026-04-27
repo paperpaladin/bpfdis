@@ -20,6 +20,7 @@ bpfdis [MODE...] FILE
   -P, --progs       the programs libbpf would find
   -m, --maps        map definitions, legacy and BTF-defined
   -b, --btf         the .BTF type section, in bpftool's own dump format
+  -e, --btfext      the .BTF.ext section: func_info, line_info, CO-RE relocs
   -x, --hex         decode hex-encoded instructions from stdin
   -A, --all         every mode above
 ```
@@ -123,7 +124,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 63 passed, 0 failed |
+| assertions | 68 passed, 0 failed |
 | corpus objects built | 77 from 14 sources |
 | instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |
@@ -138,6 +139,8 @@ Measured on 20 October 2026. `make test` prints all of them.
 | BTF against bpftool | 2,181 type records, 4,401 lines, 0 differ, all 19 kinds reached |
 | maps and programs against libbpf | 80 maps, 249 programs, 0 differ |
 | program types against libbpf | all 91 section-name rows reached, 0 differ |
+| .BTF.ext func_info against bpftool and readelf | 315 records, 0 differ |
+| .BTF.ext line_info against DWARF | 1,903 records, 0 differ |
 | control-flow graphs against a second graph | 323 functions, 1,105 blocks, 1,188 edges, 0 differ |
 | stack frames against clang | 22 nonzero and 125 empty, 0 wrong |
 | functions of clang's own output with no finding against them | 315 |
@@ -274,10 +277,13 @@ sections holding `struct bpf_map_def`, and refuses those objects outright, 16
 of the 76 in the corpus. bpfdis reads them, and nothing checks that it reads
 them correctly.
 
-**`.BTF.ext` is not read.** Function info, line info and the CO-RE relocation
-records are skipped entirely, so `-d` cannot annotate an instruction with its
-source line and `-r` says nothing about which field a CO-RE relocation is
-about. The type section itself is complete and checked.
+**No corpus object has a CO-RE relocation.** `-e` decodes the `core_relo`
+table and prints it, and nothing in the corpus produces one, so that third
+of `.BTF.ext` is written and unexercised. The count is in the suite output
+every run at zero, which is the honest form of the statement.
+
+**`-d` does not annotate instructions with their source line.** The line
+numbers are read and checked; nothing joins them to the disassembly.
 
 **CO-RE relocations are decoded, not resolved.** What a relocation would be
 patched to depends on the BTF of a running kernel, which is not read.

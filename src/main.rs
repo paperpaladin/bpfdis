@@ -6,6 +6,7 @@ mod elf;
 mod insn;
 mod prog;
 mod btf;
+mod btfext;
 mod maps;
 mod cfg;
 
@@ -28,6 +29,7 @@ usage: bpfdis [MODE...] FILE
   -P, --progs       the programs libbpf would find: name, section, length
   -m, --maps        map definitions, legacy and BTF-defined
   -b, --btf         the .BTF type section, in bpftool's own dump format
+  -e, --btfext      the .BTF.ext section: func_info, line_info, CO-RE relocs
   -x, --hex         read hex-encoded instructions from stdin, one per line,
                     and decode each on its own: the raw-encoding entry point
   -A, --all         every mode above
@@ -44,6 +46,7 @@ struct Modes {
     disasm: bool,
     raw: bool,
     btf: bool,
+    btfext: bool,
     maps: bool,
     progs: bool,
     cfg: bool,
@@ -53,7 +56,7 @@ struct Modes {
 
 impl Modes {
     fn any(&self) -> bool {
-        self.sections || self.symbols || self.relocs || self.disasm || self.btf || self.maps || self.progs || self.cfg || self.analyse
+        self.sections || self.symbols || self.relocs || self.disasm || self.btf || self.btfext || self.maps || self.progs || self.cfg || self.analyse
     }
 }
 
@@ -69,6 +72,7 @@ fn main() -> ExitCode {
             "-r" | "--relocs" => m.relocs = true,
             "-d" | "--disasm" => m.disasm = true,
             "-b" | "--btf" => m.btf = true,
+            "-e" | "--btfext" => m.btfext = true,
             "-m" | "--maps" => m.maps = true,
             "-P" | "--progs" => m.progs = true,
             "-c" | "--cfg" => m.cfg = true,
@@ -82,6 +86,7 @@ fn main() -> ExitCode {
                 m.relocs = true;
                 m.disasm = true;
                 m.btf = true;
+                m.btfext = true;
                 m.maps = true;
                 m.progs = true;
                 m.cfg = true;
@@ -210,6 +215,32 @@ fn main() -> ExitCode {
                 }
             },
             None => eprintln!("bpfdis: {}: no .BTF section", path),
+        }
+    }
+    if m.btfext {
+        // The strings .BTF.ext points at live in .BTF, so one without the
+        // other is unreadable. Say that rather than printing offsets.
+        match (e.section_by_name(".BTF.ext"), e.section_by_name(".BTF")) {
+            (Some(x), Some(b)) => {
+                let r = btf::Btf::parse(b.data(&e.file)).and_then(|btf| {
+                    btfext::BtfExt::parse(x.data(&e.file), &btf.strings)
+                        .map(|x| (btf, x))
+                });
+                match r {
+                    Ok((btf, x)) => x.dump(&mut o, &btf),
+                    Err(msg) => {
+                        eprintln!("bpfdis: {}: .BTF.ext: {}", path, msg);
+                        emit(&o);
+                        return ExitCode::from(1);
+                    }
+                }
+            }
+            (Some(_), None) => {
+                eprintln!("bpfdis: {}: .BTF.ext with no .BTF: its strings are in .BTF", path);
+                emit(&o);
+                return ExitCode::from(1);
+            }
+            (None, _) => eprintln!("bpfdis: {}: no .BTF.ext section", path),
         }
     }
     let mut rejects = 0usize;
