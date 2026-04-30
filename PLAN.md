@@ -248,8 +248,11 @@ Ranked by how little of it we control.
       through a different back end into a different section. 315 function
       entries are counted separately, because BTF.ext records the line of
       the declaration there and DWARF the line of the opening brace. No
-      corpus object has a CO-RE relocation, so that table is decoded and
-      unexercised, and the count sits in the output at zero.
+      t/corpus/core.c reaches all 13 CO-RE relocation kinds, 136 records,
+      and they are the one thing here with no outside reader: no installed
+      tool prints a core_relo record, so all that is asserted is that each
+      names a type bpftool prints, a kind the decoder has a name for, and
+      an access string of the defined shape.
       why: `insn_off` is a byte offset and everything else in this tree
       counts slots, which is the kind of mistake that is invisible at the
       first instruction of every function and wrong everywhere else.

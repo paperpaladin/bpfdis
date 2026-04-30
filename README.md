@@ -124,8 +124,8 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 68 passed, 0 failed |
-| corpus objects built | 77 from 14 sources |
+| assertions | 70 passed, 0 failed |
+| corpus objects built | 85 from 15 sources |
 | instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |
 | of those, refused by both | 0 |
@@ -139,8 +139,9 @@ Measured on 20 October 2026. `make test` prints all of them.
 | BTF against bpftool | 2,181 type records, 4,401 lines, 0 differ, all 19 kinds reached |
 | maps and programs against libbpf | 80 maps, 249 programs, 0 differ |
 | program types against libbpf | all 91 section-name rows reached, 0 differ |
-| .BTF.ext func_info against bpftool and readelf | 315 records, 0 differ |
-| .BTF.ext line_info against DWARF | 1,903 records, 0 differ |
+| .BTF.ext func_info against bpftool and readelf | 347 records, 0 differ |
+| .BTF.ext line_info against DWARF | 2,047 records, 0 differ |
+| .BTF.ext core_relo records | 136, all 13 kinds reached |
 | control-flow graphs against a second graph | 323 functions, 1,105 blocks, 1,188 edges, 0 differ |
 | stack frames against clang | 22 nonzero and 125 empty, 0 wrong |
 | functions of clang's own output with no finding against them | 315 |
@@ -277,10 +278,14 @@ sections holding `struct bpf_map_def`, and refuses those objects outright, 16
 of the 76 in the corpus. bpfdis reads them, and nothing checks that it reads
 them correctly.
 
-**No corpus object has a CO-RE relocation.** `-e` decodes the `core_relo`
-table and prints it, and nothing in the corpus produces one, so that third
-of `.BTF.ext` is written and unexercised. The count is in the suite output
-every run at zero, which is the honest form of the statement.
+**The CO-RE relocation table has no outside reader.** No installed tool
+prints a `core_relo` record, so unlike everything else here the 136 records
+in the corpus are not compared with anybody. What is checked is that each
+one points at things that exist: the type id is a record bpftool prints,
+the kind is one of the 13 the decoder names, and the access string is the
+colon-separated index list the format defines. All 13 kinds are reached by
+`t/corpus/core.c`, so no row of that list is a guess nothing runs over, but
+an off-by-one inside a record would pass every one of those checks.
 
 **`-d` does not annotate instructions with their source line.** The line
 numbers are read and checked; nothing joins them to the disassembly.

@@ -30,8 +30,11 @@ MAXSHOW = 20
 
 OURFUNC = re.compile(r"^func_info (\S+) slot=(\d+) type_id=(\d+) (.*)$")
 OURLINE = re.compile(r"^line_info (\S+) slot=(\d+) (.*):(\d+):(\d+)$")
-OURRELO = re.compile(r"^core_relo (\S+) slot=(\d+) type_id=(\d+) kind=(\d+) ")
+OURRELO = re.compile(
+    r"^core_relo (\S+) slot=(\d+) type_id=(\d+) kind=(\d+) \((\S+)\) access=(\S*)$")
 BTFFUNC = re.compile(r"^\[(\d+)\] FUNC '([^']*)'")
+BTFANY = re.compile(r"^\[(\d+)\] ([A-Z_0-9]+) ")
+ACCESS = re.compile(r"^\d+(:\d+)*$")
 SECLINE = re.compile(r"^Disassembly of section (.*):\s*$")
 SRCLINE = re.compile(r"^; (/.*):(\d+)$")
 SLOT = re.compile(r"^\s*(\d+):\s*$")
@@ -53,19 +56,22 @@ def ours(bpfdis, obj):
         m = OURRELO.match(l)
         if m:
             relos.append((m.group(1), int(m.group(2)), int(m.group(3)),
-                          int(m.group(4))))
+                          int(m.group(4)), m.group(5), m.group(6)))
     return funcs, lines, relos, p.returncode
 
 
-def btf_funcs(obj):
-    """{type id: name} for every KIND_FUNC, from bpftool."""
+def btf_records(obj):
+    """{type id: (kind, name)} for everything bpftool prints, one run."""
     out = {}
     p = subprocess.run(["/usr/sbin/bpftool", "btf", "dump", "file", obj],
                        capture_output=True, text=True)
     for l in p.stdout.splitlines():
-        m = BTFFUNC.match(l.strip())
-        if m:
-            out[int(m.group(1))] = m.group(2)
+        l = l.strip()
+        m = BTFANY.match(l)
+        if not m:
+            continue
+        f = BTFFUNC.match(l)
+        out[int(m.group(1))] = (m.group(2), f.group(2) if f else None)
     return out
 
 
@@ -111,7 +117,8 @@ def main():
     objs_with = 0
     f_cmp = f_differ = 0
     l_cmp = l_differ = l_entry = l_nodwarf = 0
-    r_cmp = 0
+    r_cmp = r_bad = 0
+    kinds_seen = set()
     bad = []
     for obj in objs:
         name = obj.split("/")[-1]
@@ -122,7 +129,8 @@ def main():
         if not funcs and not lines and not relos:
             continue
         objs_with += 1
-        types = btf_funcs(obj)
+        records = btf_records(obj)
+        types = {i: nm for i, (k, nm) in records.items() if k == "FUNC"}
         syms = elf_funcs(obj)
         for sec, slot, tid, tname in funcs:
             f_cmp += 1
@@ -168,7 +176,32 @@ def main():
                 if len(bad) < MAXSHOW:
                     bad.append("%s %s[%d]: line_info says %s:%d, DWARF says %s:%d"
                                % (name, sec, slot, f, ln, got[0], got[1]))
-        r_cmp += len(relos)
+        if relos:
+            for sec, slot, tid, kind, kname, access in relos:
+                r_cmp += 1
+                kinds_seen.add(kind)
+                # There is no outside reader for a core_relo record. What
+                # can be checked is that it refers to things that exist:
+                # the type id must be a type bpftool prints, the kind must
+                # be one the decoder names rather than UNKNOWN, and the
+                # access string must be the colon-separated index list the
+                # format defines. The README says this is weaker than the
+                # rest of the suite.
+                if tid not in records:
+                    r_bad += 1
+                    if len(bad) < MAXSHOW:
+                        bad.append("%s %s[%d]: core_relo type_id %d is in no BTF "
+                                   "record bpftool prints" % (name, sec, slot, tid))
+                elif kname == "UNKNOWN":
+                    r_bad += 1
+                    if len(bad) < MAXSHOW:
+                        bad.append("%s %s[%d]: core_relo kind %d has no name"
+                                   % (name, sec, slot, kind))
+                elif not ACCESS.match(access):
+                    r_bad += 1
+                    if len(bad) < MAXSHOW:
+                        bad.append("%s %s[%d]: core_relo access %r is not an index "
+                                   "list" % (name, sec, slot, access))
     print("btfext_objects=%d" % objs_with)
     print("func_info_compared=%d" % f_cmp)
     print("func_info_differ=%d" % f_differ)
@@ -177,9 +210,12 @@ def main():
     print("line_info_entry=%d" % l_entry)
     print("line_info_no_dwarf=%d" % l_nodwarf)
     print("core_relo_records=%d" % r_cmp)
+    print("core_relo_bad=%d" % r_bad)
+    print("core_relo_kinds=%d" % len(kinds_seen))
     for b in bad:
         print("  " + b)
-    return 1 if (f_differ or l_differ or f_cmp == 0 or l_cmp == 0) else 0
+    return 1 if (f_differ or l_differ or r_bad
+                 or f_cmp == 0 or l_cmp == 0 or r_cmp == 0) else 0
 
 
 if __name__ == "__main__":

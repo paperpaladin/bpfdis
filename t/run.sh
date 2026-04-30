@@ -295,6 +295,22 @@ if [ "${v:-0}" -gt 0 ]; then
 else
     no "no function entry was compared; the declaration-line rule is untested"
 fi
+# The CO-RE table has no outside reader at all. All that can be asked of it
+# is that it points at things that exist, and that every kind the decoder
+# can name is reached by t/corpus/core.c, so no row of that list is a guess
+# nothing runs over.
+v=$(xget core_relo_bad)
+if [ "${v:-1}" -eq 0 ]; then
+    ok "all $(xget core_relo_records) core_relo records name a real BTF type and a known kind"
+else
+    no "$v core_relo records point at something that is not there"
+fi
+v=$(xget core_relo_kinds)
+if [ "${v:-0}" -eq 13 ]; then
+    ok "all 13 CO-RE relocation kinds are reached by the corpus"
+else
+    no "the corpus reaches only ${v:-0} CO-RE relocation kinds of 13"
+fi
 
 # -------------------------------- stack depth, against LLVM's own accounting
 note "oracle: clang -mllvm -bpf-stack-size, for the stack frame"
