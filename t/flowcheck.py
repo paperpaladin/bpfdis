@@ -30,6 +30,7 @@ EXPECTED = {
     "uninit": "reads r3, which no path has written",
     "spin": "a loop",
     "runoff": "is not an exit or a jump",
+    "badcall": "not the first instruction of a function in this section",
 }
 
 

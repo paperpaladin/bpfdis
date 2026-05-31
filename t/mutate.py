@@ -178,6 +178,13 @@ MUTANTS = [
      "src/btfext.rs",
      "                let file = c.u32()?;\n                let text = c.u32()?;",
      "                let text = c.u32()?;\n                let file = c.u32()?;"),
+    ("cfg: subprogram call targets not checked", "src/cfg.rs",
+     "                if p.reloc_at(ins.idx).is_none()",
+     "                if false && p.reloc_at(ins.idx).is_none()"),
+    ("cfg: a relocated call has its placeholder offset checked", "src/cfg.rs",
+     "                if p.reloc_at(ins.idx).is_none()\n",
+     "                if true\n"),
+
     ("btfext: func_info type id read from the offset field", "src/btfext.rs",
      "                Ok(FuncInfo {\n                    insn_off: c.u32()?,\n"
      "                    type_id: c.u32()?,\n                })",

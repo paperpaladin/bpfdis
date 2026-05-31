@@ -78,3 +78,23 @@ runoff:
 	r0 = 0
 	r1 = 1
 	.size runoff, .-runoff
+
+# A subprogram call to a slot that is not the first instruction of any
+# function. The verifier only lets BPF_PSEUDO_CALL enter a subprogram at
+# its entry point.
+#
+# Written as bytes because llvm-mc has no syntax for it: `call 2` assembles
+# to src_reg 0, which is helper 2, and the assembler offers no way to set
+# the source register. That is the same hole the disassembly allow-list
+# exists for, seen from the writing end. The encoding below is
+# 85 10 00 00 02 00 00 00, a call with src_reg 1 and imm 2, so the target
+# is slot 0 + 1 + 2 = 3, one past the last instruction of a 3-slot section.
+	.section socket/badcall,"ax",@progbits
+	.globl badcall
+	.type badcall, @function
+badcall:
+	.long 0x00001085
+	.long 0x00000002
+	r0 = 0
+	exit
+	.size badcall, .-badcall

@@ -304,7 +304,7 @@ and a hand-written one would be a value worked out by hand with no oracle.
 
 **The analysis fixtures are all cases somebody thought of.** `t/corpus/badflow.s`
 has one function per defect, written by hand, and the suite asserts that each
-of the six findings is reached by one of them. A rejection the kernel makes
+of the seven findings is reached by one of them. A rejection the kernel makes
 that is not in that file is a rejection bpfdis does not look for, and there is
 no way to enumerate the set from here.
 

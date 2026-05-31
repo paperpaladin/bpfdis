@@ -306,6 +306,16 @@ Ranked by how little of it we control.
       "which program types can this attach to".
 - [x] Register liveness: reading an uninitialised register
       why: the single most common real rejection.
+- [x] Subprogram call targets: a `call` with `src_reg` 1 must enter a
+      function at its first instruction
+      done: t/corpus/badflow.s has the fixture, written as raw bytes
+      because llvm-mc has no syntax for a pseudo call at all. A call
+      carrying a relocation is skipped, because its `imm` is a placeholder
+      and checking it would reject every cross-section call clang emits;
+      the mutant that checks them anyway turns the false-positive gate red
+      over the compiled corpus.
+      why: the verifier only lets BPF_PSEUDO_CALL enter a subprogram at
+      its entry, and nothing in the report looked at where those calls go.
 - [x] Jump-target validation: out of range, into the middle of a `lddw`
       why: both are rejections, and the second is a decoder bug in anything
       that walks instructions without tracking the 16-byte form.

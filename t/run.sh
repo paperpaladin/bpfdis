@@ -451,7 +451,7 @@ fout=$(python3 "$HERE/flowcheck.py" "$BIN" "$W/obj")
 frc=$?
 echo "$fout" | grep -v "^  " | sed "s/^/     /"
 if [ $frc -eq 0 ]; then
-    ok "no finding against any function clang produced, and all 6 findings reached"
+    ok "no finding against any function clang produced, and all 7 findings reached"
 else
     no "the analysis has a false positive or an unreached finding"
     echo "$fout" | grep "^  " | head -20

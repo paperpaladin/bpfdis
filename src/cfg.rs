@@ -66,6 +66,10 @@ pub enum Problem {
     StackTooDeep { bytes: u64 },
     /// A read of a register no path has written.
     UninitRead { slot: usize, reg: u8 },
+    /// A subprogram call whose target is not the first instruction of a
+    /// function in the same section. The verifier rejects these: a
+    /// BPF_PSEUDO_CALL may only enter a subprogram at its entry.
+    CallTargetBad { slot: usize, target: i64 },
 }
 
 impl Problem {
@@ -79,7 +83,8 @@ impl Problem {
             | Problem::Undecodable { .. }
             | Problem::BadRegister { .. }
             | Problem::StackTooDeep { .. }
-            | Problem::UninitRead { .. } => "reject",
+            | Problem::UninitRead { .. }
+            | Problem::CallTargetBad { .. } => "reject",
             // A loop is fine on a 5.3 kernel or later if the verifier can
             // bound it, and fine never otherwise, so it is not a verdict.
             Problem::BackEdge { .. } => "note",
@@ -127,6 +132,11 @@ impl Problem {
             Problem::UninitRead { slot, reg } => format!(
                 "the instruction at slot {} reads r{}, which no path has written",
                 slot, reg
+            ),
+            Problem::CallTargetBad { slot, target } => format!(
+                "the subprogram call at slot {} targets slot {}, which is not the \
+                 first instruction of a function in this section",
+                slot, target
             ),
         }
     }
@@ -414,8 +424,21 @@ fn collect(cfg: &mut Cfg, p: &Prog, idxs: &[usize]) {
         match &ins.op {
             Some(Op::Call { pseudo: 0 }) => cfg.helpers.push(ins.imm),
             Some(Op::Call { pseudo: 1 }) => {
-                cfg.calls
-                    .push((ins.idx, (ins.idx + ins.slots) as i64 + ins.imm as i64));
+                let t = (ins.idx + ins.slots) as i64 + ins.imm as i64;
+                cfg.calls.push((ins.idx, t));
+                // A call carrying a relocation has a placeholder in `imm`
+                // and its real target is the symbol, so the offset says
+                // nothing and checking it would reject every cross-section
+                // call clang emits. Only the already-resolved ones are
+                // checked here.
+                if p.reloc_at(ins.idx).is_none()
+                    && !p.funcs.iter().any(|f| f.start as i64 == t)
+                {
+                    cfg.problems.push(Problem::CallTargetBad {
+                        slot: ins.idx,
+                        target: t,
+                    });
+                }
             }
             _ => {}
         }
