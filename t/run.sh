@@ -193,6 +193,33 @@ else
     no "the assembler round-trip rule never fired"
 fi
 
+# ------------------------------------------- big-endian BPF: refused, cleanly
+#
+# METHOD's unimpl() shape: the oracle must ACCEPT the input and bpfdis must
+# refuse it in a way that says why. The failure mode of a missing feature is
+# not a missing error message, it is reading the file anyway and getting
+# every field byte-swapped, which for BPF means a plausible-looking
+# disassembly of different instructions.
+note "big-endian BPF, which llvm-objdump reads and bpfdis refuses"
+if clang -target bpfeb -mcpu=v3 -O2 -c "$HERE/corpus/basic.c" -o "$W/eb.o" 2>/dev/null; then
+    n=$(llvm-objdump -d --triple=bpfeb "$W/eb.o" 2>/dev/null | grep -cE "^\s+[0-9]+:")
+    if [ "${n:-0}" -ge 20 ]; then
+        ok "llvm-objdump decodes $n instructions from the big-endian object"
+    else
+        no "llvm-objdump read only ${n:-0} instructions; the object is not a fixture"
+    fi
+    msg=$("$BIN" -A "$W/eb.o" 2>&1 >/dev/null)
+    rc=$?
+    case "$rc:$msg" in
+        1:*not\ little-endian*)
+            ok "bpfdis refuses it with exit 1 and names the reason: $msg" ;;
+        *)
+            no "bpfdis exited $rc on a big-endian object saying: $msg" ;;
+    esac
+else
+    no "clang cannot build for bpfeb; the big-endian refusal is untested"
+fi
+
 # ------------------------------- the disassembler oracles that are not here
 #
 # Every instruction number in this suite comes from LLVM, and the README says

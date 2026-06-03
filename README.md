@@ -124,7 +124,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 70 passed, 0 failed |
+| assertions | 72 passed, 0 failed |
 | corpus objects built | 85 from 15 sources |
 | instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |
@@ -293,9 +293,15 @@ numbers are read and checked; nothing joins them to the disassembly.
 **CO-RE relocations are decoded, not resolved.** What a relocation would be
 patched to depends on the BTF of a running kernel, which is not read.
 
-**No big-endian BPF and no 32-bit ELF.** Both are refused at the header check
-and both are stated non-goals. The refusal is tested; the formats are not
-implemented.
+**No big-endian BPF and no 32-bit ELF.** Both are refused at the header
+check and both are stated non-goals. The big-endian refusal is tested the
+way a missing feature should be: clang builds a `bpfeb` object, the suite
+requires llvm-objdump to decode 96 instructions from it, and then requires
+bpfdis to exit 1 with a message naming the endianness. A reader that
+quietly swallowed the file would produce a plausible disassembly of
+different instructions, which is a worse failure than no feature at all.
+Nothing here builds a 32-bit BPF object, so that refusal is exercised only
+by the byte-corruption sweep.
 
 **Helper calls are reported by number only.** `-a` lists the helper numbers a
 function calls. The number-to-name table is in `linux/bpf.h`, which is not

@@ -178,6 +178,9 @@ MUTANTS = [
      "src/btfext.rs",
      "                let file = c.u32()?;\n                let text = c.u32()?;",
      "                let text = c.u32()?;\n                let file = c.u32()?;"),
+    ("elf: a big-endian object is read as little-endian", "src/elf.rs",
+     "        if file[5] != 1 {", "        if false {"),
+
     ("cfg: subprogram call targets not checked", "src/cfg.rs",
      "                if p.reloc_at(ins.idx).is_none()",
      "                if false && p.reloc_at(ins.idx).is_none()"),
