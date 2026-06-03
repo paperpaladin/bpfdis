@@ -7,12 +7,21 @@ parses an ELF object without any privilege at all -- it is
 it. So the map table and the program list have a real external authority
 even on a machine where nothing can be loaded.
 
-Two things this cannot check, both recorded in the README rather than
-papered over. libbpf 1.0 removed support for legacy `maps` sections, so it
-refuses those objects outright and bpfdis's legacy map reader has no oracle.
-And an object libbpf refuses for any other reason contributes nothing; the
-count of objects it could open is printed so a silent collapse to zero is
-visible.
+One thing this cannot check, recorded in the README rather than papered
+over: libbpf 1.0 removed support for legacy `maps` sections, so it refuses
+those objects outright. An object libbpf refuses for any other reason
+contributes nothing either; the count of objects it could open is printed
+so a silent collapse to zero is visible.
+
+The legacy maps are checked against the only thing left, which is the
+source they were compiled from. `legacy_decls` reads the
+`struct bpf_map_def` initialisers out of t/corpus/maps.c and requires
+bpfdis to read back what was written. That is weaker than everything else
+in this file and it is not nothing: clang laid the struct out, bpfdis read
+it back, and the five fields are all the same width, so a reader that
+takes them in the wrong order gets no warning from anywhere else. The
+mutation that swaps two of them survived the entire suite before this
+existed.
 """
 import re
 import subprocess
@@ -24,6 +33,9 @@ MAPRE = re.compile(
     r"max_entries=(\d+) flags=(\d+)$"
 )
 PROGRE = re.compile(r"^prog (\S+) sec=(\S+) type=(-?\d+) insns=(\d+)$")
+LEGACY = re.compile(
+    r"struct\s+bpf_map_def\s+(\w+)\s+SEC\(\"maps\"\)\s*=\s*\{([^}]*)\}")
+FIELD = re.compile(r"\.(\w+)\s*=\s*([A-Za-z_0-9]+)")
 OURMAP = re.compile(
     r"^map (\S+) source=(\S+) type=(\d+) \(\S+\) key_size=(\d+) "
     r"value_size=(\d+) max_entries=(\d+) flags=(\d+)$"
@@ -35,6 +47,26 @@ OURPROG = re.compile(r"^prog (\S+) sec=(\S+) type=(\d+) \(\S+\) insns=(\d+)$")
 # suite red, instead of sitting in the table with nothing checking it.
 TABLEROW = re.compile(
     r'^\s*\("([^"]+)",\s*(true|false),\s*(\d+),\s*"([A-Z_0-9]+)"\),$')
+
+
+def legacy_decls(src):
+    """{name: (type, key_size, value_size, max_entries, flags)} from the C."""
+    names = {
+        "BPF_MAP_TYPE_HASH": 1,
+        "BPF_MAP_TYPE_ARRAY": 2,
+        "BPF_MAP_TYPE_PERF_EVENT_ARRAY": 4,
+    }
+    out = {}
+    text = open(src).read()
+    for m in LEGACY.finditer(text):
+        f = {}
+        for k, v in FIELD.findall(m.group(2)):
+            f[k] = names.get(v, None) if not v.isdigit() else int(v)
+        out[m.group(1)] = (
+            f.get("type"), f.get("key_size", 0), f.get("value_size", 0),
+            f.get("max_entries", 0), f.get("map_flags", 0),
+        )
+    return out
 
 
 def core_name(n):
@@ -79,13 +111,32 @@ def matches(sec, row):
 
 
 def main():
-    probe, bpfdis, src = sys.argv[1], sys.argv[2], sys.argv[3]
-    objs = sys.argv[4:]
+    probe, bpfdis, src, csrc = (sys.argv[1], sys.argv[2], sys.argv[3],
+                                sys.argv[4])
+    objs = sys.argv[5:]
+    want_legacy = legacy_decls(csrc)
+    legacy_cmp = legacy_differ = 0
     opened = refused = 0
     maps_cmp = maps_differ = progs_cmp = progs_differ = 0
     reached = set()
     bad = []
     for obj in objs:
+        # bpfdis first, and unconditionally: the legacy maps live in the
+        # objects libbpf refuses, so checking them after the refusal
+        # `continue` below compared nothing and said so by printing zero.
+        q = subprocess.run([bpfdis, "-m", "-P", obj], capture_output=True, text=True)
+        for l in q.stdout.splitlines():
+            m = OURMAP.match(l)
+            if m and m.group(2) == "legacy":
+                got = tuple(int(m.group(i)) for i in (3, 4, 5, 6, 7))
+                want = want_legacy.get(m.group(1))
+                if want is not None:
+                    legacy_cmp += 1
+                    if got != want:
+                        legacy_differ += 1
+                        bad.append("%s legacy map %s: the source declares %r, "
+                                   "bpfdis reads %r"
+                                   % (obj.split("/")[-1], m.group(1), want, got))
         p = subprocess.run([probe, obj], capture_output=True, text=True)
         if p.returncode == 2:
             print("libbpfcmp: probe failed: %s" % p.stderr.strip(), file=sys.stderr)
@@ -106,7 +157,6 @@ def main():
             if m:
                 want_progs.append((m.group(1), m.group(2), int(m.group(3)),
                                    int(m.group(4))))
-        q = subprocess.run([bpfdis, "-m", "-P", obj], capture_output=True, text=True)
         got_maps, got_progs = [], []
         for l in q.stdout.splitlines():
             m = OURMAP.match(l)
@@ -176,6 +226,8 @@ def main():
         if len(hits) > 1:
             ambiguous.append("%s matches %d table rows: %s"
                              % (sec, len(hits), ", ".join(hits)))
+    print("legacy_compared=%d" % legacy_cmp)
+    print("legacy_differ=%d" % legacy_differ)
     print("sectype_rows=%d" % len(rows))
     print("sectype_unreached=%d" % len(unreached))
     print("sectype_ambiguous=%d" % len(ambiguous))
@@ -186,7 +238,8 @@ def main():
     for b in bad:
         print("  " + b)
     return 1 if (maps_differ or progs_differ or maps_cmp == 0
-                 or progs_cmp == 0 or unreached or ambiguous) else 0
+                 or progs_cmp == 0 or unreached or ambiguous
+                 or legacy_differ or legacy_cmp == 0) else 0
 
 
 if __name__ == "__main__":

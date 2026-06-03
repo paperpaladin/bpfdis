@@ -124,7 +124,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 72 passed, 0 failed |
+| assertions | 73 passed, 0 failed |
 | corpus objects built | 85 from 15 sources |
 | instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |
@@ -217,34 +217,42 @@ bytes carry `src_reg == 1`.
 
 ## Mutation testing
 
-`make mutants` applies 46 named defects to the Rust source one at a time,
-rebuilds, and runs the whole suite against each. It takes about fifteen
-minutes and is not part of `make test`. The defects are in `t/mutate.py`, each
-with a sentence saying what it breaks, and a mutant whose pattern does not
-apply is reported rather than counted as killed, because a no-op edit passes
-every suite there is.
+`make mutants` applies 57 named defects to the Rust source one at a time,
+rebuilds, and runs the whole suite against each. It takes about half an hour
+and is not part of `make test`. The defects are in `t/mutate.py`, each with a
+sentence saying what it breaks, and a mutant whose pattern does not apply is
+reported rather than counted as killed, because a no-op edit passes every
+suite there is.
 
-44 killed, 2 survived.
+All 57 are killed by a named assertion.
 
-Both survivors are holes rather than noise.
+Two were not, and what they were pointing at was worth more than the
+mutation score.
 
-Making a pointer the size of the thing it points at changes no output any
-assertion can see. No map in the corpus has a pointer-typed member whose size
-reaches the key or value size comparison, so the only caller that would notice
-is never invoked with one.
+Making a pointer the size of the thing it points at changed no output
+anywhere. Every key and value in the BTF-map corpus was a pointer to an
+integer or to a struct, where the size of the pointee is the right answer, so
+the one place `size_of` is asked about a pointer was never reached. The
+corpus now has a map whose key is `u32 **`, where the answer is 8 and the
+mutant says 4, and libbpf agrees it is 8.
 
-Reading the legacy `struct bpf_map_def` fields in the wrong order survives for
-two reasons at once. libbpf 1.0 refuses `maps` sections outright, so that
-reader has no oracle, and the one fixture gives the key and the value the same
-size, which would hide a swap even if an oracle existed.
+Reading the legacy `struct bpf_map_def` fields in the wrong order survived
+because that reader had no oracle at all: libbpf 1.0 refuses `maps` sections,
+and all five fields are the same width, so nothing else in the suite could
+see the difference. They are now compared against the initialisers in
+`t/corpus/maps.c`, which is weaker than an outside authority and is not
+nothing: clang laid the struct out and bpfdis reads it back.
 
-Three of the 44 were not killed by an assertion, and the harness says so
-rather than letting them count as suite coverage. Two were caught by the
-`make overread` gate: shrinking a symbol table entry to 16 bytes makes the
-planted read exit 1 instead of aborting, and giving the slot map one spare
-element makes it exit 0, which is the silent wrong answer that gate exists
-for. The third, deleting back-edge detection, does not compile, so the
-compiler killed it and the suite never ran on it.
+Three of the kills are not assertions and the harness says so rather than
+letting them count as suite coverage. Two come from the `make overread`
+gate: shrinking a symbol table entry to 16 bytes makes the planted read exit
+1 instead of aborting, and giving the slot map one spare element makes it
+exit 0, which is the silent wrong answer that gate exists for.
+
+A fourth used to be killed by the compiler. Deleting the only push into
+`back_edges`' result vector left its type unknown, so `rustc` rejected it and
+the suite never ran; a mutant that cannot be built proves nothing about the
+tests. The vector is annotated now and `flowcheck.py` kills it.
 
 ## What does not work
 
@@ -273,10 +281,12 @@ LLVM. A bug in LLVM's BPF tables is a bug bpfdis would be measured as correct
 against, and the three `0xc3` encodings above are an example of how far apart
 LLVM's own two halves can get.
 
-**The legacy map form has no oracle.** libbpf 1.0 removed support for `maps`
-sections holding `struct bpf_map_def`, and refuses those objects outright, 16
-of the 76 in the corpus. bpfdis reads them, and nothing checks that it reads
-them correctly.
+**The legacy map form has no outside oracle.** libbpf 1.0 removed support
+for `maps` sections holding `struct bpf_map_def` and refuses those objects
+outright, 16 of the corpus. Those 16 are checked against the initialisers in
+the C source they were compiled from instead, which crosses clang and
+nothing else. An error both clang and bpfdis made in the same direction
+would pass.
 
 **The CO-RE relocation table has no outside reader.** No installed tool
 prints a `core_relo` record, so unlike everything else here the 136 records

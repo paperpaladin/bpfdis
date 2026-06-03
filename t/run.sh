@@ -378,7 +378,7 @@ sb=$("$BIN" -a "$W/obj/stackderived.asm.o" 2>/dev/null \
 note "oracle: libbpf, for maps and programs"
 if cc -O1 -o "$W/lp" "$HERE/libbpf_probe.c" -ldl 2>"$W/lp.err"; then
     lout=$(python3 "$HERE/libbpfcmp.py" "$W/lp" "$BIN" "$ROOT/src/prog.rs" \
-                   "$W"/obj/*.o)
+                   "$HERE/corpus/maps.c" "$W"/obj/*.o)
     lrc=$?
     echo "$lout" | grep -v "^  " | sed "s/^/     /"
     if [ $lrc -eq 0 ]; then
@@ -410,6 +410,16 @@ if cc -O1 -o "$W/lp" "$HERE/libbpf_probe.c" -ldl 2>"$W/lp.err"; then
     # bpfdis's legacy reader has no oracle, and it is asserted rather than
     # remembered, because if libbpf ever opened them the README would be
     # wrong and the legacy path would suddenly be checkable.
+    # The legacy maps are the half libbpf refuses, so they are checked
+    # against the source they were compiled from. All five fields are the
+    # same width, so a reader that takes them in the wrong order gets no
+    # warning from anywhere else in the suite.
+    v=$(lget legacy_differ)
+    if [ "${v:-1}" -eq 0 ] && [ "$(lget legacy_compared)" -gt 0 ]; then
+        ok "$(lget legacy_compared) legacy bpf_map_def records read back what the source declares"
+    else
+        no "${v:-?} legacy map records differ from their source declaration"
+    fi
     if [ "$(lget libbpf_refused)" -gt 0 ]; then
         ok "libbpf refused $(lget libbpf_refused) objects, legacy map sections among them"
     else

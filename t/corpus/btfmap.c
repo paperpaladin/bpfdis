@@ -16,6 +16,20 @@ struct {
     struct { u64 a; u32 b; } *value;
 } ring SEC(".maps");
 
+/* A key that is itself a pointer, so the member is a pointer to a pointer
+ * and the size that matters is the size of a pointer rather than the size
+ * of what it points at. Without this map the mutation that makes a pointer
+ * as big as its pointee changes no output anywhere: every other key and
+ * value here is a pointer to an integer or a struct, where the pointee's
+ * size is the right answer. The element type is u32 on purpose, so the
+ * wrong answer is 4 and not 8. */
+struct {
+    int (*type)[BPF_MAP_TYPE_HASH];
+    int (*max_entries)[16];
+    u32 **key;
+    u64 *value;
+} ptrkey SEC(".maps");
+
 SEC("socket/btfmaps")
 int btfmaps(struct __sk_buff *skb)
 {
