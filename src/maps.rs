@@ -100,29 +100,37 @@ fn legacy(e: &Elf, out: &mut Vec<MapDef>) {
             source: "legacy",
             ..Default::default()
         };
+        // Exactly as many words as the section actually held, not five.
+        //
+        // METHOD's oversized-buffer rule in its Rust form. A `[0u32; 5]`
+        // filled from a cursor that runs out leaves zeros behind, and those
+        // zeros then travel into `key_size` and `max_entries` as though
+        // they had been read. Nothing crashes, nothing is uninitialised by
+        // Rust's rules, and the output is a map record made half of file
+        // and half of padding. Sizing the buffer to the data means the
+        // missing fields are missing, and the note below says how many.
         let mut c = Cur::at(data, y.value as usize);
-        let mut vals = [0u32; 5];
-        let mut short = false;
-        for v in vals.iter_mut() {
+        let mut vals: Vec<u32> = Vec::new();
+        while vals.len() < 5 {
             match c.u32() {
-                Ok(x) => *v = x,
-                Err(_) => {
-                    short = true;
-                    break;
-                }
+                Ok(x) => vals.push(x),
+                Err(_) => break,
             }
         }
-        if short {
+        if vals.len() < 5 {
             m.notes.push(format!(
-                "symbol at {:#x} does not have 20 bytes of section behind it",
-                y.value
+                "symbol at {:#x} has only {} of the 5 words of a struct \
+                 bpf_map_def behind it; the rest are reported as zero",
+                y.value,
+                vals.len()
             ));
         }
-        m.mtype = vals[0];
-        m.key_size = vals[1];
-        m.value_size = vals[2];
-        m.max_entries = vals[3];
-        m.flags = vals[4];
+        let at = |i: usize| vals.get(i).copied().unwrap_or(0);
+        m.mtype = at(0);
+        m.key_size = at(1);
+        m.value_size = at(2);
+        m.max_entries = at(3);
+        m.flags = at(4);
         if y.size != 0 && y.size != 20 {
             m.notes.push(format!(
                 "symbol size is {}, not the 20 bytes of a struct bpf_map_def",

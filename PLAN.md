@@ -340,6 +340,12 @@ Ranked by how little of it we control.
       `Vec::with_capacity(n)` followed by a length taken from the file is
       exactly that shape. The audit is to find every place a length and a
       buffer come from different sources.
+      done: the sweep found a second instance, in maps.rs, where a legacy
+      struct bpf_map_def was read into a five-word buffer from a section
+      that could be shorter, and the leftover zeros travelled out as
+      key_size and max_entries. t/corpus/shortmap.s is a 12-byte definition
+      with a symbol claiming 20, and the suite requires the record to say
+      3 words of 5 rather than reporting a zero max_entries as a value.
 
 ### Milestone 6: honesty
 

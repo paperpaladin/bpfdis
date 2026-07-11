@@ -193,6 +193,29 @@ else
     no "the assembler round-trip rule never fired"
 fi
 
+# ------------- the oversized-buffer rule, in the form Rust leaves open
+#
+# `make overread` covers the one place where a buffer longer than its data
+# turns a panic into a wrong answer. This covers the other shape: a buffer
+# the right size for a full record, filled from a section that is shorter,
+# where the leftover zeros are reported as though they had been read. Rust
+# calls none of that uninitialised and nothing crashes, so the only thing
+# that can tell the two apart is a reader that counts what it actually got.
+note "a legacy map with less section behind it than the struct needs"
+mout=$("$BIN" -m "$W/obj/shortmap.asm.o" 2>&1)
+case "$mout" in
+    *"only 3 of the 5 words"*)
+        ok "a 12-byte struct bpf_map_def is reported as 3 words of 5" ;;
+    *)
+        no "the short legacy map was read without saying how much was there: $mout" ;;
+esac
+case "$mout" in
+    *"max_entries=0"*)
+        ok "the words with no file behind them are reported as zero, beside the note" ;;
+    *)
+        no "the short legacy map did not report a zero for a missing word: $mout" ;;
+esac
+
 # ------------------------------------------- big-endian BPF: refused, cleanly
 #
 # METHOD's unimpl() shape: the oracle must ACCEPT the input and bpfdis must

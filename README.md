@@ -124,8 +124,8 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 73 passed, 0 failed |
-| corpus objects built | 85 from 15 sources |
+| assertions | 75 passed, 0 failed |
+| corpus objects built | 86 from 16 sources |
 | instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |
 | of those, refused by both | 0 |
@@ -215,16 +215,49 @@ bpfdis prints them differently, so 48 instructions in the corpus are in the
 allow-list, and the allow-list will only accept an instruction whose actual
 bytes carry `src_reg == 1`.
 
+## Buffers larger than their data
+
+The collection this lives in has found that shape eighteen times in C, where
+the consequence is that the sanitizer stops being able to see an overread.
+Rust has no sanitizer to switch off, so the shape does something else, and
+`src` was swept for every place a buffer's size and the length that indexes
+it come from different sources. Two were found and the rest are exact by
+construction.
+
+`prog.rs` builds a `slot_map` with one entry per 8-byte slot of a section.
+One spare element turns an index past the end from an abort into a quiet
+`None`, which every caller reads as "that slot is the tail of a 16-byte
+load", so a jump one past the end of a section becomes a jump into a wide
+load: a wrong answer with nothing to see. `make overread` rebuilds with that
+read planted and requires it to abort with 134. bpfdis itself only ever
+exits 0, 1, 2 or 3, so a report cannot be confused with a refusal. With one
+spare element the planted read exits 0 instead, and the mutation run records
+exactly that.
+
+`maps.rs` read a legacy `struct bpf_map_def` into a five-word buffer from a
+cursor that could run out. The leftover zeros then travelled into
+`key_size` and `max_entries` as though they had been read, and a zero
+`max_entries` looks like a map somebody declared that way. The buffer is
+sized to what the section actually held now, and `t/corpus/shortmap.s` is a
+12-byte definition with a symbol claiming 20: the suite requires the record
+to say "only 3 of the 5 words" and to report the missing two as zero beside
+that note. The mutation that pads to five words in silence is killed by it.
+
+Neither of these was a crash and neither would have been found by running
+anything. The second was found by the sweep and not by the suite, and the
+honest summary is that the sweep found one real reporting defect in a tree
+that was already careful about the first.
+
 ## Mutation testing
 
-`make mutants` applies 57 named defects to the Rust source one at a time,
+`make mutants` applies 58 named defects to the Rust source one at a time,
 rebuilds, and runs the whole suite against each. It takes about half an hour
 and is not part of `make test`. The defects are in `t/mutate.py`, each with a
 sentence saying what it breaks, and a mutant whose pattern does not apply is
 reported rather than counted as killed, because a no-op edit passes every
 suite there is.
 
-All 57 are killed by a named assertion.
+All 58 are killed by a named assertion.
 
 Two were not, and what they were pointing at was worth more than the
 mutation score.
