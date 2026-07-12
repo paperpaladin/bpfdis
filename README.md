@@ -357,6 +357,18 @@ of the seven findings is reached by one of them. A rejection the kernel makes
 that is not in that file is a rejection bpfdis does not look for, and there is
 no way to enumerate the set from here.
 
+**The build is reproducible; one artefact beside it is not.** Checked with
+`python3 unrepro/unrepro.py check ../bpfdis --cmd 'make -B'`, which builds
+twice under different directories, time zones, locales, umasks, hostnames,
+users, `SOURCE_DATE_EPOCH` and readdir order. `target/release/bpfdis` is
+byte-identical across the two. `target/release/bpfdis.d` is not: it is the
+dependency list cargo writes for make, and it holds the absolute path of
+every source file, which is where the build ran rather than anything about
+the source. Nothing reads it but cargo and it is not tracked. There is no
+`make repro` target, because the checker lives in a sibling repository and
+a suite that reads its neighbours fails for anyone who clones this one on
+its own.
+
 **One machine, one LLVM, one kernel.** Every number above comes from clang and
 LLVM 19.1.7, binutils 2.44, bpftool 7.5.0 with libbpf 1.5, on one Linux box
 running 7.2.11. Several of the measured behaviours are version-specific: which
