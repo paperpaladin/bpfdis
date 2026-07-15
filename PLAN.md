@@ -109,7 +109,7 @@ Ranked by how little of it we control.
 6. **libbpf 1.5 itself**, through `t/libbpf_probe.c`, which `dlopen`s
    `libbpf.so.1` and calls `bpf_object__open_file`. Parsing needs no
    privilege; it is `bpf_object__load` that does, and the probe never calls
-   it. There are no libbpf headers installed, so the fourteen entry points are
+   it. There are no libbpf headers installed, so the sixteen entry points are
    declared from the published API and resolved by name, and a missing
    symbol exits 2 rather than producing an empty comparison. Authority for
    the map table and the program list.

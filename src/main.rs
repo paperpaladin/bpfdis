@@ -189,7 +189,7 @@ fn main() -> ExitCode {
             let _ = writeln!(
                 o,
                 "map {} source={} type={} ({}) key_size={} value_size={} \
-                 max_entries={} flags={}",
+                 max_entries={} flags={} btf_key={} btf_value={}",
                 d.name,
                 d.source,
                 d.mtype,
@@ -197,7 +197,9 @@ fn main() -> ExitCode {
                 d.key_size,
                 d.value_size,
                 d.max_entries,
-                d.flags
+                d.flags,
+                d.btf_key,
+                d.btf_value
             );
             for n in &d.notes {
                 let _ = writeln!(o, "  ! {}", n);

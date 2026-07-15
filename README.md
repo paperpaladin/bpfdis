@@ -59,7 +59,7 @@ is the authority for BTF, compared line for line against our own `-b`.
 and calls `bpf_object__open_file`. It is the authority for the map table, the
 program list, and the program type each section name implies. Parsing needs no
 privilege; it is `bpf_object__load` that does, and the probe never calls it. There are no
-libbpf headers installed, so the fourteen entry points are declared from the
+libbpf headers installed, so the sixteen entry points are declared from the
 published API and resolved by name, and a missing symbol exits 2 rather than
 producing an empty comparison.
 
@@ -137,7 +137,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 | encodings swept against llvm-mc | 24,279 |
 | ELF records against readelf | 2,282 sections, 1,632 symbols, 8,955 relocations, 0 differ |
 | BTF against bpftool | 2,181 type records, 4,401 lines, 0 differ, all 19 kinds reached |
-| maps and programs against libbpf | 80 maps, 249 programs, 0 differ |
+| maps and programs against libbpf | 88 maps, 249 programs, 0 differ |
 | program types against libbpf | all 91 section-name rows reached, 0 differ |
 | .BTF.ext func_info against bpftool and readelf | 347 records, 0 differ |
 | .BTF.ext line_info against DWARF | 2,047 records, 0 differ |
@@ -250,14 +250,14 @@ that was already careful about the first.
 
 ## Mutation testing
 
-`make mutants` applies 58 named defects to the Rust source one at a time,
+`make mutants` applies 60 named defects to the Rust source one at a time,
 rebuilds, and runs the whole suite against each. It takes about half an hour
 and is not part of `make test`. The defects are in `t/mutate.py`, each with a
 sentence saying what it breaks, and a mutant whose pattern does not apply is
 reported rather than counted as killed, because a no-op edit passes every
 suite there is.
 
-All 58 are killed by a named assertion.
+All 60 are killed by a named assertion.
 
 Two were not, and what they were pointing at was worth more than the
 mutation score.

@@ -30,7 +30,7 @@ import sys
 MAXSHOW = 20
 MAPRE = re.compile(
     r"^map (\S+) type=(\d+) key_size=(\d+) value_size=(\d+) "
-    r"max_entries=(\d+) flags=(\d+)$"
+    r"max_entries=(\d+) flags=(\d+) btf_key=(\d+) btf_value=(\d+)$"
 )
 PROGRE = re.compile(r"^prog (\S+) sec=(\S+) type=(-?\d+) insns=(\d+)$")
 LEGACY = re.compile(
@@ -38,7 +38,8 @@ LEGACY = re.compile(
 FIELD = re.compile(r"\.(\w+)\s*=\s*([A-Za-z_0-9]+)")
 OURMAP = re.compile(
     r"^map (\S+) source=(\S+) type=(\d+) \(\S+\) key_size=(\d+) "
-    r"value_size=(\d+) max_entries=(\d+) flags=(\d+)$"
+    r"value_size=(\d+) max_entries=(\d+) flags=(\d+) btf_key=(\d+) "
+    r"btf_value=(\d+)$"
 )
 OURPROG = re.compile(r"^prog (\S+) sec=(\S+) type=(\d+) \(\S+\) insns=(\d+)$")
 # The section-name table lives in the Rust source and is read back out of it
@@ -163,7 +164,8 @@ def main():
             if m and m.group(2) in ("btf", "section"):
                 got_maps.append(
                     (m.group(1), int(m.group(3)), int(m.group(4)),
-                     int(m.group(5)), int(m.group(6)), int(m.group(7)))
+                     int(m.group(5)), int(m.group(6)), int(m.group(7)),
+                     int(m.group(8)), int(m.group(9)))
                 )
                 continue
             m = OURPROG.match(l)

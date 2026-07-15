@@ -38,6 +38,12 @@ pub struct MapDef {
     pub value_size: u32,
     pub max_entries: u32,
     pub flags: u32,
+    /// The BTF type id of the key and of the value, as a loader records
+    /// them. Zero means the definition did not give a type: the legacy
+    /// form never does, and a BTF definition using `key_size` rather than
+    /// `key` gives a size and no type.
+    pub btf_key: u32,
+    pub btf_value: u32,
     pub notes: Vec<String>,
 }
 
@@ -186,6 +192,10 @@ fn btf_maps(b: &Btf, out: &mut Vec<MapDef>) {
             let pointee_size = inner
                 .filter(|t| t.kind == KIND_PTR)
                 .and_then(|t| b.size_of(t.size_or_type));
+            // The pointee's id as written, not stripped. `ptrkey` in
+            // t/corpus/btfmap.c has a key of `u32 **`, and a loader records
+            // the id of `u32 *` there rather than the id of `u32`.
+            let pointee_id = inner.filter(|t| t.kind == KIND_PTR).map(|t| t.size_or_type);
             match mem.name.as_str() {
                 "type" => match arr_len {
                     Some(v) => m.mtype = v,
@@ -211,14 +221,20 @@ fn btf_maps(b: &Btf, out: &mut Vec<MapDef>) {
                         m.value_size = v;
                     }
                 }
-                "key" => match pointee_size {
-                    Some(v) => m.key_size = v as u32,
-                    None => m.notes.push("key type has no size".into()),
-                },
-                "value" => match pointee_size {
-                    Some(v) => m.value_size = v as u32,
-                    None => m.notes.push("value type has no size".into()),
-                },
+                "key" => {
+                    m.btf_key = pointee_id.unwrap_or(0);
+                    match pointee_size {
+                        Some(v) => m.key_size = v as u32,
+                        None => m.notes.push("key type has no size".into()),
+                    }
+                }
+                "value" => {
+                    m.btf_value = pointee_id.unwrap_or(0);
+                    match pointee_size {
+                        Some(v) => m.value_size = v as u32,
+                        None => m.notes.push("value type has no size".into()),
+                    }
+                }
                 // `values` is an array of pointers, used for maps of maps and
                 // program arrays; its length is the entry count.
                 "values" => {
@@ -271,13 +287,15 @@ fn section_maps(e: &Elf, btf: Option<&Btf>, out: &mut Vec<MapDef>) {
         if !rodata && !is_data && !is_bss {
             continue;
         }
-        let has_datasec = btf
-            .map(|b| {
-                b.types
-                    .iter()
-                    .any(|t| t.kind == KIND_DATASEC && t.name == n)
-            })
-            .unwrap_or(false);
+        // A loader gives a data-section map the id of the DATASEC record
+        // describing that section as its value type, and no key type.
+        let datasec_id = btf.and_then(|b| {
+            b.types
+                .iter()
+                .position(|t| t.kind == KIND_DATASEC && t.name == n)
+                .map(|i| i as u32 + 1)
+        });
+        let has_datasec = datasec_id.is_some();
         let mut flags = 0;
         if rodata {
             flags |= F_RDONLY_PROG;
@@ -293,6 +311,8 @@ fn section_maps(e: &Elf, btf: Option<&Btf>, out: &mut Vec<MapDef>) {
             value_size: s.size as u32,
             max_entries: 1,
             flags,
+            btf_key: 0,
+            btf_value: datasec_id.unwrap_or(0),
             notes: Vec::new(),
         });
     }
