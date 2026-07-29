@@ -114,11 +114,65 @@ def shrinks(data):
             yield ("section %d sh_size := %#x" % (i, v), bytes(b))
 
 
+def section_range(data, want):
+    """(offset, size) of a named section, or None, read without bpfdis."""
+    if len(data) < 64:
+        return None
+    shoff = int.from_bytes(data[0x28:0x30], "little")
+    shentsize = int.from_bytes(data[0x3A:0x3C], "little")
+    shnum = int.from_bytes(data[0x3C:0x3E], "little")
+    shstrndx = int.from_bytes(data[0x3E:0x40], "little")
+    if shentsize != 64 or shstrndx >= shnum:
+        return None
+    if shoff + shnum * 64 > len(data):
+        return None
+    strbase = shoff + shstrndx * 64
+    stroff = int.from_bytes(data[strbase + 24:strbase + 32], "little")
+    for i in range(shnum):
+        base = shoff + i * 64
+        nameoff = int.from_bytes(data[base:base + 4], "little")
+        end = data.find(b"\0", stroff + nameoff)
+        if data[stroff + nameoff:end].decode("ascii", "replace") != want:
+            continue
+        off = int.from_bytes(data[base + 24:base + 32], "little")
+        size = int.from_bytes(data[base + 32:base + 40], "little")
+        if off + size <= len(data):
+            return (off, size)
+    return None
+
+
+def btf_corruptions(data, rng):
+    """Every byte of .BTF and .BTF.ext, one at a time, then 4-byte smashes.
+
+    The general sweep strides 29 bytes through the whole file, so a 1 kB
+    .BTF.ext gets about 35 single-byte edits out of 4000 runs. Those two
+    sections are almost entirely offsets, counts and record sizes, which is
+    the half of the input a reader indexes with, so they get their own
+    sweep at a stride of one.
+    """
+    for name in (".BTF", ".BTF.ext"):
+        r = section_range(data, name)
+        if r is None:
+            continue
+        off, size = r
+        for i in range(size):
+            for v in (0x00, 0xFF):
+                b = bytearray(data)
+                b[off + i] = v
+                yield ("%s byte %d := %#x" % (name, i, v), bytes(b))
+        for _ in range(200):
+            b = bytearray(data)
+            at = off + rng.randrange(max(1, size - 4))
+            for k in range(4):
+                b[at + k] = rng.randrange(256)
+            yield ("%s 4 random bytes at %d" % (name, at - off), bytes(b))
+
+
 def main():
     bpfdis, corpus, scratch = sys.argv[1], sys.argv[2], sys.argv[3]
     rng = random.Random(20261019)
     counts = {}
-    for n in ("truncate", "corrupt", "shrink", "nonelf"):
+    for n in ("truncate", "corrupt", "shrink", "nonelf", "btf"):
         for k in ("runs", "clean", "refused", "crashed"):
             counts[n + "_" + k] = 0
     bad = []
@@ -137,6 +191,7 @@ def main():
         sweep("truncate", bpfdis, tmp, truncations(data), counts, bad)
         sweep("corrupt", bpfdis, tmp, corruptions(data, rng), counts, bad)
         sweep("shrink", bpfdis, tmp, shrinks(data), counts, bad)
+        sweep("btf", bpfdis, tmp, btf_corruptions(data, rng), counts, bad)
 
     # Inputs that are not objects at all.
     junk = [

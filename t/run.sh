@@ -536,7 +536,8 @@ else
     echo "$rout" | grep "^  " | head -20
 fi
 rget() { echo "$rout" | sed -n "s/^$1=\([0-9]*\)$/\1/p"; }
-tot=$(( $(rget truncate_runs) + $(rget corrupt_runs) + $(rget shrink_runs) + $(rget nonelf_runs) ))
+tot=$(( $(rget truncate_runs) + $(rget corrupt_runs) + $(rget shrink_runs) \
+        + $(rget nonelf_runs) + $(rget btf_runs) ))
 if [ "$tot" -ge 5000 ]; then
     ok "the robustness sweep ran $tot inputs"
 else
@@ -545,7 +546,7 @@ fi
 # A sweep where everything is refused has tested the magic check and
 # nothing else, so both directions are asserted for the two sweeps that
 # can have both.
-for n in corrupt shrink; do
+for n in corrupt shrink btf; do
     if [ "$(rget ${n}_clean)" -gt 0 ] && [ "$(rget ${n}_refused)" -gt 0 ]; then
         ok "$n sweep is two-sided ($(rget ${n}_clean) parsed, $(rget ${n}_refused) refused)"
     else

@@ -124,7 +124,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 75 passed, 0 failed |
+| assertions | 76 passed, 0 failed |
 | corpus objects built | 86 from 16 sources |
 | instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |
@@ -145,7 +145,8 @@ Measured on 20 October 2026. `make test` prints all of them.
 | control-flow graphs against a second graph | 323 functions, 1,105 blocks, 1,188 edges, 0 differ |
 | stack frames against clang | 22 nonzero and 125 empty, 0 wrong |
 | functions of clang's own output with no finding against them | 315 |
-| malformed inputs | 5,536 run, 0 crashed, 0 hung |
+| malformed inputs | 16,475 run, 0 crashed, 0 hung |
+| of those, aimed at .BTF and .BTF.ext | 10,912, of which 321 refused |
 
 Refusals are counted apart from disagreements everywhere, because the two need
 different work. A disagreement is a bug in one of the two tools. A refusal
@@ -335,6 +336,15 @@ numbers are read and checked; nothing joins them to the disassembly.
 
 **CO-RE relocations are decoded, not resolved.** What a relocation would be
 patched to depends on the BTF of a running kernel, which is not read.
+
+**The BTF corruption sweep found nothing.** 10,912 inputs with a single
+byte of `.BTF` or `.BTF.ext` set to 0x00 or 0xFF, plus 4-byte smashes at
+random offsets inside them, over five base objects. 321 were refused,
+10,591 were read, none crashed or hung. A negative result is still a
+result: the sweep was written because the general corruption sweep strides
+29 bytes through the whole file and so gives a 1 kB `.BTF.ext` about 35
+single-byte edits, and those two sections are almost entirely offsets,
+counts and record sizes.
 
 **No big-endian BPF and no 32-bit ELF.** Both are refused at the header
 check and both are stated non-goals. The big-endian refusal is tested the
