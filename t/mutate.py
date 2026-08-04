@@ -192,6 +192,13 @@ MUTANTS = [
      "src/btfext.rs",
      "                let file = c.u32()?;\n                let text = c.u32()?;",
      "                let text = c.u32()?;\n                let file = c.u32()?;"),
+    ("cfg: helper 5 is named as helper 6", "src/cfg.rs",
+     "\"bpf_trace_printk\", \"bpf_get_prandom_u32\"",
+     "\"bpf_get_prandom_u32\", \"bpf_trace_printk\""),
+    ("cfg: helper names indexed from one", "src/cfg.rs",
+     "    HELPERS.get(n as usize).copied()",
+     "    HELPERS.get(n as usize - 1).copied()"),
+
     ("elf: a big-endian object is read as little-endian", "src/elf.rs",
      "        if file[5] != 1 {", "        if false {"),
 

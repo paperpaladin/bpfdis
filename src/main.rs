@@ -303,8 +303,18 @@ fn print_analysis(o: &mut String, e: &Elf, want_cfg: bool, want_report: bool) ->
                     .iter()
                     .filter(|x| matches!(x, cfg::Problem::BackEdge { .. }))
                     .count();
-                let helpers: Vec<String> =
-                    c.helpers.iter().map(|h| h.to_string()).collect();
+                // Number and name together: the number is what the
+                // instruction holds and the name is what it means, and a
+                // helper this build has no name for prints as the number
+                // alone rather than as a guess.
+                let helpers: Vec<String> = c
+                    .helpers
+                    .iter()
+                    .map(|h| match cfg::helper_name(*h) {
+                        Some(n) => format!("{}({})", h, n),
+                        None => h.to_string(),
+                    })
+                    .collect();
                 let _ = writeln!(
                     o,
                     "analysis {} {} insns={} blocks={} stack={} stack8={} loops={} \

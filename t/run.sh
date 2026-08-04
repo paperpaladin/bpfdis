@@ -243,6 +243,44 @@ else
     no "clang cannot build for bpfeb; the big-endian refusal is untested"
 fi
 
+# ---------------- the name tables, against the lists bpftool was built with
+#
+# `bpftool feature list_builtins` prints the helper, program-type and
+# map-type names in the order of the kernel's enumerations and needs no
+# privilege. Both sides of this comparison came from that command once, so
+# it proves transcription fidelity rather than anything about the kernel,
+# and the README says so. It still earns itself: a bpftool from a different
+# kernel disagrees, and so does a name edited by hand.
+note "oracle: bpftool feature list_builtins, for the name tables"
+nout=$(python3 "$HERE/nametables.py" "$ROOT/src" "$BIN" "$W"/obj/*.o)
+nrc=$?
+echo "$nout" | grep -v "^  " | sed "s/^/     /"
+if [ $nrc -eq 0 ]; then
+    ok "every helper, program-type and map-type name matches bpftool's own list"
+else
+    no "a name table disagrees with bpftool"
+    echo "$nout" | grep "^  " | head -20
+fi
+nget() { echo "$nout" | sed -n "s/^$1=\([0-9]*\)$/\1/p"; }
+v=$(nget helper_names)
+if [ "${v:-0}" -ge 200 ]; then
+    ok "the helper name table is $v entries and all of them are compared"
+else
+    no "only ${v:-0} helper names were compared"
+fi
+v=$(nget helpers_named_in_corpus)
+if [ "${v:-0}" -ge 40 ]; then
+    ok "$v helper calls in the corpus are named, and the names match bpftool's list"
+else
+    no "only ${v:-0} helper calls were named; the lookup is barely exercised"
+fi
+v=$(nget corpus_helper_decls)
+if [ "${v:-0}" -ge 10 ]; then
+    ok "$v helper ids declared in t/corpus/bpf.h are the ones bpftool names"
+else
+    no "only ${v:-0} helper declarations were checked against bpftool"
+fi
+
 # ------------------------------- the disassembler oracles that are not here
 #
 # Every instruction number in this suite comes from LLVM, and the README says
