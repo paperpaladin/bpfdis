@@ -143,7 +143,8 @@ fn build_one(e: &Elf, s: &Section) -> Prog {
     }
 }
 
-/// Section name, whether it must match exactly, program type, type name.
+/// Section name, whether it must match exactly, program type, type name,
+/// expected attach type or -1 for none.
 ///
 /// A loader picks a program's type from the name of the section it is in.
 /// The numbers are the `bpf_prog_type` enumeration from the kernel's
@@ -166,99 +167,100 @@ fn build_one(e: &Elf, s: &Section) -> Prog {
 /// in the corpus rather than this comment claiming it. A tiebreak was
 /// written here first, and the mutation that removed it survived the whole
 /// suite, which is how the dead branch was found.
-pub const SEC_TYPES: &[(&str, bool, u32, &str)] = &[
-    ("socket", true, 1, "SOCKET_FILTER"),
-    ("sk_reuseport/migrate", true, 21, "SK_REUSEPORT"),
-    ("sk_reuseport", true, 21, "SK_REUSEPORT"),
-    ("kprobe", false, 2, "KPROBE"),
-    ("kretprobe", false, 2, "KPROBE"),
-    ("kprobe.multi", false, 2, "KPROBE"),
-    ("kretprobe.multi", false, 2, "KPROBE"),
-    ("kprobe.session", false, 2, "KPROBE"),
-    ("uprobe", false, 2, "KPROBE"),
-    ("uretprobe", false, 2, "KPROBE"),
-    ("uprobe.s", false, 2, "KPROBE"),
-    ("uretprobe.s", false, 2, "KPROBE"),
-    ("uprobe.multi", false, 2, "KPROBE"),
-    ("uretprobe.multi", false, 2, "KPROBE"),
-    ("usdt", false, 2, "KPROBE"),
-    ("usdt.s", false, 2, "KPROBE"),
-    ("tracepoint", false, 5, "TRACEPOINT"),
-    ("tp", false, 5, "TRACEPOINT"),
-    ("raw_tracepoint", false, 17, "RAW_TRACEPOINT"),
-    ("raw_tp", false, 17, "RAW_TRACEPOINT"),
-    ("raw_tracepoint.w", false, 24, "RAW_TRACEPOINT_WRITABLE"),
-    ("raw_tp.w", false, 24, "RAW_TRACEPOINT_WRITABLE"),
-    ("xdp.frags/devmap", true, 6, "XDP"),
-    ("xdp/devmap", true, 6, "XDP"),
-    ("xdp.frags/cpumap", true, 6, "XDP"),
-    ("xdp/cpumap", true, 6, "XDP"),
-    ("xdp.frags", true, 6, "XDP"),
-    ("xdp", true, 6, "XDP"),
-    ("perf_event", true, 7, "PERF_EVENT"),
-    ("lwt_in", true, 10, "LWT_IN"),
-    ("lwt_out", true, 11, "LWT_OUT"),
-    ("lwt_xmit", true, 12, "LWT_XMIT"),
-    ("lwt_seg6local", true, 19, "LWT_SEG6LOCAL"),
-    ("lirc_mode2", true, 20, "LIRC_MODE2"),
-    ("cgroup_skb/ingress", true, 8, "CGROUP_SKB"),
-    ("cgroup_skb/egress", true, 8, "CGROUP_SKB"),
-    ("cgroup/skb", true, 8, "CGROUP_SKB"),
-    ("cgroup/sock_create", true, 9, "CGROUP_SOCK"),
-    ("cgroup/sock_release", true, 9, "CGROUP_SOCK"),
-    ("cgroup/sock", true, 9, "CGROUP_SOCK"),
-    ("cgroup/post_bind4", true, 9, "CGROUP_SOCK"),
-    ("cgroup/post_bind6", true, 9, "CGROUP_SOCK"),
-    ("cgroup/dev", true, 15, "CGROUP_DEVICE"),
-    ("cgroup/sysctl", true, 23, "CGROUP_SYSCTL"),
-    ("cgroup/getsockopt", true, 25, "CGROUP_SOCKOPT"),
-    ("cgroup/setsockopt", true, 25, "CGROUP_SOCKOPT"),
-    ("cgroup/bind4", true, 18, "CGROUP_SOCK_ADDR"),
-    ("cgroup/bind6", true, 18, "CGROUP_SOCK_ADDR"),
-    ("cgroup/connect4", true, 18, "CGROUP_SOCK_ADDR"),
-    ("cgroup/connect6", true, 18, "CGROUP_SOCK_ADDR"),
-    ("cgroup/connect_unix", true, 18, "CGROUP_SOCK_ADDR"),
-    ("cgroup/sendmsg4", true, 18, "CGROUP_SOCK_ADDR"),
-    ("cgroup/sendmsg6", true, 18, "CGROUP_SOCK_ADDR"),
-    ("cgroup/recvmsg4", true, 18, "CGROUP_SOCK_ADDR"),
-    ("cgroup/recvmsg6", true, 18, "CGROUP_SOCK_ADDR"),
-    ("cgroup/getpeername4", true, 18, "CGROUP_SOCK_ADDR"),
-    ("cgroup/getpeername6", true, 18, "CGROUP_SOCK_ADDR"),
-    ("cgroup/getsockname4", true, 18, "CGROUP_SOCK_ADDR"),
-    ("cgroup/getsockname6", true, 18, "CGROUP_SOCK_ADDR"),
-    ("sockops", true, 13, "SOCK_OPS"),
-    ("sk_skb/stream_parser", true, 14, "SK_SKB"),
-    ("sk_skb/stream_verdict", true, 14, "SK_SKB"),
-    ("sk_skb", true, 14, "SK_SKB"),
-    ("sk_msg", true, 16, "SK_MSG"),
-    ("classifier", true, 3, "SCHED_CLS"),
-    ("tc/ingress", true, 3, "SCHED_CLS"),
-    ("tc/egress", true, 3, "SCHED_CLS"),
-    ("tc", true, 3, "SCHED_CLS"),
-    ("tcx/ingress", true, 3, "SCHED_CLS"),
-    ("tcx/egress", true, 3, "SCHED_CLS"),
-    ("netkit/primary", true, 3, "SCHED_CLS"),
-    ("netkit/peer", true, 3, "SCHED_CLS"),
-    ("action", true, 4, "SCHED_ACT"),
-    ("sk_lookup", true, 30, "SK_LOOKUP"),
-    ("flow_dissector", true, 22, "FLOW_DISSECTOR"),
-    ("syscall", true, 31, "SYSCALL"),
-    ("netfilter", true, 32, "NETFILTER"),
-    ("lsm", false, 29, "LSM"),
-    ("lsm.s", false, 29, "LSM"),
-    ("fentry", false, 26, "TRACING"),
-    ("fexit", false, 26, "TRACING"),
-    ("fmod_ret", false, 26, "TRACING"),
-    ("fentry.s", false, 26, "TRACING"),
-    ("fexit.s", false, 26, "TRACING"),
-    ("fmod_ret.s", false, 26, "TRACING"),
-    ("tp_btf", false, 26, "TRACING"),
-    ("iter", false, 26, "TRACING"),
-    ("iter.s", false, 26, "TRACING"),
-    ("freplace", false, 28, "EXT"),
-    ("struct_ops", false, 27, "STRUCT_OPS"),
-    ("struct_ops.s", false, 27, "STRUCT_OPS"),
+pub const SEC_TYPES: &[(&str, bool, u32, &str, i32)] = &[
+    ("socket", true, 1, "SOCKET_FILTER", -1),
+    ("sk_reuseport/migrate", true, 21, "SK_REUSEPORT", 40),
+    ("sk_reuseport", true, 21, "SK_REUSEPORT", 39),
+    ("kprobe", false, 2, "KPROBE", -1),
+    ("kretprobe", false, 2, "KPROBE", -1),
+    ("kprobe.multi", false, 2, "KPROBE", 42),
+    ("kretprobe.multi", false, 2, "KPROBE", 42),
+    ("kprobe.session", false, 2, "KPROBE", 56),
+    ("uprobe", false, 2, "KPROBE", -1),
+    ("uretprobe", false, 2, "KPROBE", -1),
+    ("uprobe.s", false, 2, "KPROBE", -1),
+    ("uretprobe.s", false, 2, "KPROBE", -1),
+    ("uprobe.multi", false, 2, "KPROBE", 48),
+    ("uretprobe.multi", false, 2, "KPROBE", 48),
+    ("usdt", false, 2, "KPROBE", -1),
+    ("usdt.s", false, 2, "KPROBE", -1),
+    ("tracepoint", false, 5, "TRACEPOINT", -1),
+    ("tp", false, 5, "TRACEPOINT", -1),
+    ("raw_tracepoint", false, 17, "RAW_TRACEPOINT", -1),
+    ("raw_tp", false, 17, "RAW_TRACEPOINT", -1),
+    ("raw_tracepoint.w", false, 24, "RAW_TRACEPOINT_WRITABLE", -1),
+    ("raw_tp.w", false, 24, "RAW_TRACEPOINT_WRITABLE", -1),
+    ("xdp.frags/devmap", true, 6, "XDP", 33),
+    ("xdp/devmap", true, 6, "XDP", 33),
+    ("xdp.frags/cpumap", true, 6, "XDP", 35),
+    ("xdp/cpumap", true, 6, "XDP", 35),
+    ("xdp.frags", true, 6, "XDP", 37),
+    ("xdp", true, 6, "XDP", 37),
+    ("perf_event", true, 7, "PERF_EVENT", -1),
+    ("lwt_in", true, 10, "LWT_IN", -1),
+    ("lwt_out", true, 11, "LWT_OUT", -1),
+    ("lwt_xmit", true, 12, "LWT_XMIT", -1),
+    ("lwt_seg6local", true, 19, "LWT_SEG6LOCAL", -1),
+    ("lirc_mode2", true, 20, "LIRC_MODE2", 16),
+    ("cgroup_skb/ingress", true, 8, "CGROUP_SKB", 0),
+    ("cgroup_skb/egress", true, 8, "CGROUP_SKB", 1),
+    ("cgroup/skb", true, 8, "CGROUP_SKB", -1),
+    ("cgroup/sock_create", true, 9, "CGROUP_SOCK", 2),
+    ("cgroup/sock_release", true, 9, "CGROUP_SOCK", 34),
+    ("cgroup/sock", true, 9, "CGROUP_SOCK", 2),
+    ("cgroup/post_bind4", true, 9, "CGROUP_SOCK", 12),
+    ("cgroup/post_bind6", true, 9, "CGROUP_SOCK", 13),
+    ("cgroup/dev", true, 15, "CGROUP_DEVICE", 6),
+    ("cgroup/sysctl", true, 23, "CGROUP_SYSCTL", 18),
+    ("cgroup/getsockopt", true, 25, "CGROUP_SOCKOPT", 21),
+    ("cgroup/setsockopt", true, 25, "CGROUP_SOCKOPT", 22),
+    ("cgroup/bind4", true, 18, "CGROUP_SOCK_ADDR", 8),
+    ("cgroup/bind6", true, 18, "CGROUP_SOCK_ADDR", 9),
+    ("cgroup/connect4", true, 18, "CGROUP_SOCK_ADDR", 10),
+    ("cgroup/connect6", true, 18, "CGROUP_SOCK_ADDR", 11),
+    ("cgroup/connect_unix", true, 18, "CGROUP_SOCK_ADDR", 49),
+    ("cgroup/sendmsg4", true, 18, "CGROUP_SOCK_ADDR", 14),
+    ("cgroup/sendmsg6", true, 18, "CGROUP_SOCK_ADDR", 15),
+    ("cgroup/recvmsg4", true, 18, "CGROUP_SOCK_ADDR", 19),
+    ("cgroup/recvmsg6", true, 18, "CGROUP_SOCK_ADDR", 20),
+    ("cgroup/getpeername4", true, 18, "CGROUP_SOCK_ADDR", 29),
+    ("cgroup/getpeername6", true, 18, "CGROUP_SOCK_ADDR", 30),
+    ("cgroup/getsockname4", true, 18, "CGROUP_SOCK_ADDR", 31),
+    ("cgroup/getsockname6", true, 18, "CGROUP_SOCK_ADDR", 32),
+    ("sockops", true, 13, "SOCK_OPS", 3),
+    ("sk_skb/stream_parser", true, 14, "SK_SKB", 4),
+    ("sk_skb/stream_verdict", true, 14, "SK_SKB", 5),
+    ("sk_skb", true, 14, "SK_SKB", -1),
+    ("sk_msg", true, 16, "SK_MSG", 7),
+    ("classifier", true, 3, "SCHED_CLS", -1),
+    ("tc/ingress", true, 3, "SCHED_CLS", 46),
+    ("tc/egress", true, 3, "SCHED_CLS", 47),
+    ("tc", true, 3, "SCHED_CLS", -1),
+    ("tcx/ingress", true, 3, "SCHED_CLS", 46),
+    ("tcx/egress", true, 3, "SCHED_CLS", 47),
+    ("netkit/primary", true, 3, "SCHED_CLS", 54),
+    ("netkit/peer", true, 3, "SCHED_CLS", 55),
+    ("action", true, 4, "SCHED_ACT", -1),
+    ("sk_lookup", true, 30, "SK_LOOKUP", 36),
+    ("flow_dissector", true, 22, "FLOW_DISSECTOR", 17),
+    ("syscall", true, 31, "SYSCALL", -1),
+    ("netfilter", true, 32, "NETFILTER", 45),
+    ("lsm", false, 29, "LSM", 27),
+    ("lsm.s", false, 29, "LSM", 27),
+    ("fentry", false, 26, "TRACING", 24),
+    ("fexit", false, 26, "TRACING", 25),
+    ("fmod_ret", false, 26, "TRACING", 26),
+    ("fentry.s", false, 26, "TRACING", 24),
+    ("fexit.s", false, 26, "TRACING", 25),
+    ("fmod_ret.s", false, 26, "TRACING", 26),
+    ("tp_btf", false, 26, "TRACING", 23),
+    ("iter", false, 26, "TRACING", 28),
+    ("iter.s", false, 26, "TRACING", 28),
+    ("freplace", false, 28, "EXT", -1),
+    ("struct_ops", false, 27, "STRUCT_OPS", -1),
+    ("struct_ops.s", false, 27, "STRUCT_OPS", -1),
 ];
+
 
 
 /// The program type a loader would give a section with this name.
@@ -267,7 +269,7 @@ pub const SEC_TYPES: &[(&str, bool, u32, &str)] = &[
 /// libbpf's behaviour, which refuses to open the object; bpfdis reads files
 /// nothing will load, so it says what it knows and prints UNSPEC for the
 /// rest.
-pub fn prog_type(sec: &str) -> (u32, &'static str) {
+pub fn prog_type(sec: &str) -> (u32, &'static str, i32) {
     for row in SEC_TYPES {
         let hit = sec == row.0
             || (!row.1
@@ -275,10 +277,41 @@ pub fn prog_type(sec: &str) -> (u32, &'static str) {
                 && sec.starts_with(row.0)
                 && sec.as_bytes()[row.0.len()] == b'/');
         if hit {
-            return (row.2, row.3);
+            return (row.2, row.3, row.4);
         }
     }
-    (0, "UNSPEC")
+    (0, "UNSPEC", -1)
+}
+
+/// Attach type names, indexed by number, from
+/// `bpftool feature list_builtins attach_types`. Same provenance and same
+/// check as HELPERS in cfg.rs.
+pub const ATTACH_NAMES: &[&str] = &[
+    "cgroup_inet_ingress", "cgroup_inet_egress", "cgroup_inet_sock_create",
+    "cgroup_sock_ops", "sk_skb_stream_parser", "sk_skb_stream_verdict",
+    "cgroup_device", "sk_msg_verdict", "cgroup_inet4_bind",
+    "cgroup_inet6_bind", "cgroup_inet4_connect", "cgroup_inet6_connect",
+    "cgroup_inet4_post_bind", "cgroup_inet6_post_bind", "cgroup_udp4_sendmsg",
+    "cgroup_udp6_sendmsg", "lirc_mode2", "flow_dissector", "cgroup_sysctl",
+    "cgroup_udp4_recvmsg", "cgroup_udp6_recvmsg", "cgroup_getsockopt",
+    "cgroup_setsockopt", "trace_raw_tp", "trace_fentry", "trace_fexit",
+    "modify_return", "lsm_mac", "trace_iter", "cgroup_inet4_getpeername",
+    "cgroup_inet6_getpeername", "cgroup_inet4_getsockname",
+    "cgroup_inet6_getsockname", "xdp_devmap", "cgroup_inet_sock_release",
+    "xdp_cpumap", "sk_lookup", "xdp", "sk_skb_verdict", "sk_reuseport_select",
+    "sk_reuseport_select_or_migrate", "perf_event", "trace_kprobe_multi",
+    "lsm_cgroup", "struct_ops", "netfilter", "tcx_ingress", "tcx_egress",
+    "trace_uprobe_multi", "cgroup_unix_connect", "cgroup_unix_sendmsg",
+    "cgroup_unix_recvmsg", "cgroup_unix_getpeername",
+    "cgroup_unix_getsockname", "netkit_primary", "netkit_peer",
+    "trace_kprobe_session",
+];
+
+pub fn attach_name(a: i32) -> &'static str {
+    if a < 0 {
+        return "-";
+    }
+    ATTACH_NAMES.get(a as usize).copied().unwrap_or("?")
 }
 
 pub fn programs(e: &Elf) -> Vec<Prog> {

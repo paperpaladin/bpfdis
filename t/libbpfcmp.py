@@ -32,7 +32,8 @@ MAPRE = re.compile(
     r"^map (\S+) type=(\d+) key_size=(\d+) value_size=(\d+) "
     r"max_entries=(\d+) flags=(\d+) btf_key=(\d+) btf_value=(\d+)$"
 )
-PROGRE = re.compile(r"^prog (\S+) sec=(\S+) type=(-?\d+) insns=(\d+)$")
+PROGRE = re.compile(
+    r"^prog (\S+) sec=(\S+) type=(-?\d+) eat=(-?\d+) insns=(\d+)$")
 LEGACY = re.compile(
     r"struct\s+bpf_map_def\s+(\w+)\s+SEC\(\"maps\"\)\s*=\s*\{([^}]*)\}")
 FIELD = re.compile(r"\.(\w+)\s*=\s*([A-Za-z_0-9]+)")
@@ -41,13 +42,15 @@ OURMAP = re.compile(
     r"value_size=(\d+) max_entries=(\d+) flags=(\d+) btf_key=(\d+) "
     r"btf_value=(\d+)$"
 )
-OURPROG = re.compile(r"^prog (\S+) sec=(\S+) type=(\d+) \(\S+\) insns=(\d+)$")
+OURPROG = re.compile(
+    r"^prog (\S+) sec=(\S+) type=(\d+) \(\S+\) attach=(-?\d+) \(\S+\) "
+    r"insns=(\d+)$")
 # The section-name table lives in the Rust source and is read back out of it
 # here. Deriving the row list from the code rather than restating it means a
 # row added without a program in t/corpus/sections.c to reach it turns the
 # suite red, instead of sitting in the table with nothing checking it.
 TABLEROW = re.compile(
-    r'^\s*\("([^"]+)",\s*(true|false),\s*(\d+),\s*"([A-Z_0-9]+)"\),$')
+    r'^\s*\("([^"]+)",\s*(true|false),\s*(\d+),\s*"([A-Z_0-9]+)",\s*(-?\d+)\),$')
 
 
 def legacy_decls(src):
@@ -101,7 +104,7 @@ def table_rows(src):
             m = TABLEROW.match(line)
             if m:
                 rows.append((m.group(1), m.group(2) == "true",
-                             int(m.group(3)), m.group(4)))
+                             int(m.group(3)), m.group(4), int(m.group(5))))
     return rows
 
 
@@ -157,7 +160,7 @@ def main():
             m = PROGRE.match(l)
             if m:
                 want_progs.append((m.group(1), m.group(2), int(m.group(3)),
-                                   int(m.group(4))))
+                                   int(m.group(4)), int(m.group(5))))
         got_maps, got_progs = [], []
         for l in q.stdout.splitlines():
             m = OURMAP.match(l)
@@ -170,8 +173,12 @@ def main():
                 continue
             m = OURPROG.match(l)
             if m:
+                # libbpf reports 0 for both "no attach type" and for
+                # cgroup_inet_ingress, which is attach type 0. bpfdis keeps
+                # them apart with -1, so -1 is mapped back before comparing;
+                # the distinction is ours and the oracle cannot see it.
                 got_progs.append((m.group(1), m.group(2), int(m.group(3)),
-                                  int(m.group(4))))
+                                  max(int(m.group(4)), 0), int(m.group(5))))
                 reached.add(m.group(2))
         name = obj.split("/")[-1]
         for what, want, got in (
@@ -240,7 +247,7 @@ def main():
     for b in bad:
         print("  " + b)
     return 1 if (maps_differ or progs_differ or maps_cmp == 0
-                 or progs_cmp == 0 or unreached or ambiguous
+                 or progs_cmp == 0 or unreached or ambiguous or not rows
                  or legacy_differ or legacy_cmp == 0) else 0
 
 

@@ -216,6 +216,29 @@ case "$mout" in
         no "the short legacy map did not report a zero for a missing word: $mout" ;;
 esac
 
+# ------------- the one attach-type fact libbpf cannot confirm either way
+#
+# bpf_program__expected_attach_type returns 0 both for a section with no
+# attach type and for cgroup_skb/ingress, whose attach type really is zero.
+# bpfdis keeps those apart, printing -1 for the first, and the libbpf
+# comparison maps -1 back to 0 before asking, so the distinction is invisible
+# to the oracle. It is asserted here instead, which is the same treatment the
+# call src_reg divergence gets in the disassembly comparison.
+note "attach type 0 and no attach type, which libbpf reports identically"
+pout=$("$BIN" -P "$W/obj/sections.v3.O2.o" 2>/dev/null)
+case "$pout" in
+    *"sec=cgroup_skb/ingress type=8 (CGROUP_SKB) attach=0 (cgroup_inet_ingress)"*)
+        ok "cgroup_skb/ingress is attach type 0, and says so" ;;
+    *)
+        no "cgroup_skb/ingress did not report attach type 0" ;;
+esac
+case "$pout" in
+    *"sec=socket type=1 (SOCKET_FILTER) attach=-1 (-)"*)
+        ok "a socket filter has no attach type, and says that rather than 0" ;;
+    *)
+        no "the socket section did not report an absent attach type" ;;
+esac
+
 # ------------------------------------------- big-endian BPF: refused, cleanly
 #
 # METHOD's unimpl() shape: the oracle must ACCEPT the input and bpfdis must
@@ -490,11 +513,14 @@ if cc -O1 -o "$W/lp" "$HERE/libbpf_probe.c" -ldl 2>"$W/lp.err"; then
     # by a section in the corpus. A row nothing exercises is a number nobody
     # checked, and this table is transcribed from a header that is not
     # installed here, so it is exactly where a transcription error lives.
+    # The row count is asserted as well as the unreached count. A regex
+    # that stopped matching the table reported zero rows, zero unreached
+    # and a pass, which is the vacuous shape this file exists to avoid.
     v=$(lget sectype_unreached)
-    if [ "${v:-1}" -eq 0 ]; then
+    if [ "${v:-1}" -eq 0 ] && [ "$(lget sectype_rows)" -ge 80 ]; then
         ok "all $(lget sectype_rows) section-name table rows are reached and agree with libbpf"
     else
-        no "$v section-name table rows are reached by nothing in the corpus"
+        no "${v:-?} of $(lget sectype_rows) section-name table rows are reached by nothing"
     fi
     # prog_type returns the first row that matches, so the table has to be
     # unambiguous for that to be the right answer.

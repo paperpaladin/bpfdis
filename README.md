@@ -62,7 +62,7 @@ makes it the authority for the three name tables in `src`.
 and calls `bpf_object__open_file`. It is the authority for the map table, the
 program list, and the program type each section name implies. Parsing needs no
 privilege; it is `bpf_object__load` that does, and the probe never calls it. There are no
-libbpf headers installed, so the sixteen entry points are declared from the
+libbpf headers installed, so the seventeen entry points are declared from the
 published API and resolved by name, and a missing symbol exits 2 rather than
 producing an empty comparison.
 
@@ -127,7 +127,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 80 passed, 0 failed |
+| assertions | 82 passed, 0 failed |
 | corpus objects built | 86 from 16 sources |
 | instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |
@@ -140,7 +140,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 | encodings swept against llvm-mc | 24,279 |
 | ELF records against readelf | 2,282 sections, 1,632 symbols, 8,955 relocations, 0 differ |
 | BTF against bpftool | 2,181 type records, 4,401 lines, 0 differ, all 19 kinds reached |
-| maps and programs against libbpf | 88 maps, 249 programs, 0 differ |
+| maps and programs against libbpf | 88 maps, 282 programs, 0 differ |
 | program types against libbpf | all 91 section-name rows reached, 0 differ |
 | .BTF.ext func_info against bpftool and readelf | 347 records, 0 differ |
 | .BTF.ext line_info against DWARF | 2,047 records, 0 differ |
@@ -148,7 +148,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 | control-flow graphs against a second graph | 323 functions, 1,105 blocks, 1,188 edges, 0 differ |
 | stack frames against clang | 22 nonzero and 125 empty, 0 wrong |
 | functions of clang's own output with no finding against them | 315 |
-| helper, program-type and map-type names against bpftool | 278, 0 differ |
+| helper, program, map and attach type names against bpftool | 335, 0 differ |
 | helper calls named in the corpus | 128, 0 differ |
 | malformed inputs | 16,475 run, 0 crashed, 0 hung |
 | of those, aimed at .BTF and .BTF.ext | 10,912, of which 321 refused |
@@ -214,6 +214,15 @@ three in the corpus are `atomic_fetch_or`, `xchg32_32` and `cmpxchg32_32` at
 32-bit width, in `t/corpus/exotic.s`, and they are counted in their own bucket
 rather than as agreement.
 
+A second place where bpfdis says more than the oracle can confirm.
+`bpf_program__expected_attach_type` returns 0 both for a section with no
+attach type and for `cgroup_skb/ingress`, whose attach type genuinely is
+zero. bpfdis records -1 for the first, the comparison maps it back to 0
+before asking libbpf, and the distinction is asserted on its own instead:
+`socket` must print `attach=-1 (-)` and `cgroup_skb/ingress` must print
+`attach=0 (cgroup_inet_ingress)`. Without that the mutation which collapses
+them survives the whole suite.
+
 The other divergence is deliberate and runs the other way. `call` with
 `src_reg = 1` is a relative call to another subprogram in the same object;
 with `src_reg = 0` it is helper number `imm`. LLVM prints `call 1` for both.
@@ -256,14 +265,14 @@ that was already careful about the first.
 
 ## Mutation testing
 
-`make mutants` applies 62 named defects to the Rust source one at a time,
+`make mutants` applies 64 named defects to the Rust source one at a time,
 rebuilds, and runs the whole suite against each. It takes about half an hour
 and is not part of `make test`. The defects are in `t/mutate.py`, each with a
 sentence saying what it breaks, and a mutant whose pattern does not apply is
 reported rather than counted as killed, because a no-op edit passes every
 suite there is.
 
-All 62 are killed by a named assertion.
+All 64 are killed by a named assertion.
 
 Two were not, and what they were pointing at was worth more than the
 mutation score.

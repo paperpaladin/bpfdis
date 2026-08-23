@@ -8,7 +8,7 @@
  * in but only exposes map names, through `gen skeleton`.
  *
  * There are no libbpf headers on this machine, only libbpf.so.1, so the
- * sixteen entry points used here are declared from the published API and resolved
+ * seventeen entry points used here are declared from the published API and resolved
  * with dlopen. A missing or renamed symbol is reported and exits 2, never
  * silently skipped: a probe that prints nothing would be counted as a clean
  * run by anything reading its exit status.
@@ -16,7 +16,7 @@
  * Output, one line per record:
  *   map <name> type=<n> key_size=<n> value_size=<n> max_entries=<n>
  *       flags=<n> btf_key=<n> btf_value=<n>
- *   prog <name> sec=<section> type=<n> insns=<n>
+ *   prog <name> sec=<section> type=<n> eat=<n> insns=<n>
  */
 #define _GNU_SOURCE
 #include <dlfcn.h>
@@ -62,6 +62,7 @@ int main(int argc, char **argv)
     const char *(*prog_name)(const void *) = sym("bpf_program__name");
     const char *(*prog_sec)(const void *) = sym("bpf_program__section_name");
     int (*prog_type)(const void *) = sym("bpf_program__type");
+    int (*prog_eat)(const void *) = sym("bpf_program__expected_attach_type");
     size_t (*prog_insn_cnt)(const void *) = sym("bpf_program__insn_cnt");
 
     void *obj = open_file(argv[1], NULL);
@@ -76,8 +77,8 @@ int main(int argc, char **argv)
                map_name(m), map_type(m), map_key_size(m), map_value_size(m),
                map_max_entries(m), map_flags(m), map_btf_key(m), map_btf_val(m));
     for (void *p = next_prog(obj, NULL); p; p = next_prog(obj, p))
-        printf("prog %s sec=%s type=%d insns=%zu\n", prog_name(p), prog_sec(p),
-               prog_type(p), prog_insn_cnt(p));
+        printf("prog %s sec=%s type=%d eat=%d insns=%zu\n", prog_name(p),
+               prog_sec(p), prog_type(p), prog_eat(p), prog_insn_cnt(p));
     close_obj(obj);
     return 0;
 }

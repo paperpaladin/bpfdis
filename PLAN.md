@@ -109,7 +109,7 @@ Ranked by how little of it we control.
 6. **libbpf 1.5 itself**, through `t/libbpf_probe.c`, which `dlopen`s
    `libbpf.so.1` and calls `bpf_object__open_file`. Parsing needs no
    privilege; it is `bpf_object__load` that does, and the probe never calls
-   it. There are no libbpf headers installed, so the sixteen entry points are
+   it. There are no libbpf headers installed, so the seventeen entry points are
    declared from the published API and resolved by name, and a missing
    symbol exits 2 rather than producing an empty comparison. Authority for
    the map table and the program list.
@@ -222,6 +222,9 @@ Ranked by how little of it we control.
       `socket/ingress` is nothing at all and only a bare `socket` is a
       socket filter. Which is which was measured by compiling both forms of
       every name, not inferred.
+      The expected attach type is the fifth column, also from libbpf, and
+      the names of all four tables come from
+      `bpftool feature list_builtins`, which needs no privilege either.
       why: it is the first thing a loader decides about a program, and
       libbpf will say whether we got it right without any privilege.
 - [x] Map definitions, both legacy `bpf_map_def` and BTF-defined `.maps`,

@@ -97,7 +97,8 @@ def main():
     helpers = builtins("helpers")
     progs = builtins("prog_types")
     maps = builtins("map_types")
-    if helpers is None or progs is None or maps is None:
+    attach = builtins("attach_types")
+    if helpers is None or progs is None or maps is None or attach is None:
         print("nametables: bpftool feature list_builtins failed", file=sys.stderr)
         return 2
 
@@ -115,8 +116,9 @@ def main():
     # The program-type names live in the fourth column of the section-name
     # table, so the same number appears many times and each occurrence is
     # checked.
-    rows = re.findall(r'^\s*\("[^"]+", (?:true|false), (\d+), "([A-Z_0-9]+)"\),$',
-                      open(src + "/prog.rs").read(), re.M)
+    rows = re.findall(
+        r'^\s*\("[^"]+", (?:true|false), (\d+), "([A-Z_0-9]+)", -?\d+\),$',
+        open(src + "/prog.rs").read(), re.M)
     c, d = compare("prog type", {int(n): nm for n, nm in rows}, progs, bad)
     print("prog_type_names=%d" % c)
     total += c
@@ -127,6 +129,17 @@ def main():
     print("map_type_names=%d" % c)
     total += c
     differ += d
+
+    ours = rust_array(src + "/prog.rs", "pub const ATTACH_NAMES",
+                      re.compile(r'"([a-z_0-9]+)"'))
+    c, d = compare("attach type", dict(enumerate(ours)), attach, bad)
+    print("attach_type_names=%d" % c)
+    total += c
+    differ += d
+    if len(ours) != len(attach):
+        differ += 1
+        bad.append("the attach table has %d entries, bpftool lists %d"
+                   % (len(ours), len(attach)))
 
     # The table being right is not the same as the lookup using it right.
     # Every helper bpfdis names in the corpus is checked against the same
