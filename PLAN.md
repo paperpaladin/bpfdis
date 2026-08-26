@@ -304,6 +304,16 @@ Ranked by how little of it we control.
       frame address FORMED, which is the part that matters
       why: 512 bytes is a hard limit and exceeding it is a rejection with a
       message nobody can act on.
+- [x] The subprogram call graph: recursion, and nesting depth
+      done: cycles and depth over the calls that resolve inside a section,
+      with two fixtures in t/corpus/badflow.s, a function that calls itself
+      and a chain of nine. Cross-section calls are not followed, so the
+      depth is a lower bound and the README says so. The limit of 8 is the
+      kernel's MAX_CALL_FRAMES written down, with no header here to read it
+      from and no verifier to ask.
+      why: the verifier rejects recursion outright and caps nesting, and
+      neither is visible one function at a time, which is all the report
+      could see.
 - [x] Helper call inventory, by number
       why: the first thing anyone asks of an unknown object, and the input to
       "which program types can this attach to".

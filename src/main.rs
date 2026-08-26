@@ -265,12 +265,34 @@ fn main() -> ExitCode {
 fn print_analysis(o: &mut String, e: &Elf, want_cfg: bool, want_report: bool) -> usize {
     let mut rejects = 0usize;
     for p in prog::programs(e) {
-        for f in &p.funcs {
-            // A function in `.text` is a subprogram: it is called rather
-            // than entered, so its argument registers arrive live.
-            let is_subprog = p.name == ".text";
-            let mut c = cfg::build(&p, f);
-            cfg::analyse(&mut c, &p, is_subprog);
+        // Every function first, then the call graph over them, because
+        // recursion and nesting depth are properties of the section rather
+        // than of any one function and cannot be seen one at a time.
+        let is_subprog = p.name == ".text";
+        let mut cfgs: Vec<cfg::Cfg> = p
+            .funcs
+            .iter()
+            .map(|f| {
+                let mut c = cfg::build(&p, f);
+                cfg::analyse(&mut c, &p, is_subprog);
+                c
+            })
+            .collect();
+        let (depth, cycles) = cfg::call_graph(&p, &cfgs);
+        for (a, b) in cycles {
+            let names = (p.funcs[a].name.clone(), p.funcs[b].name.clone());
+            cfgs[a].problems.push(cfg::Problem::Recursion {
+                from: names.0,
+                to: names.1,
+            });
+        }
+        for (i, d) in depth.iter().enumerate() {
+            if *d > cfg::MAX_CALL_DEPTH {
+                cfgs[i].problems.push(cfg::Problem::CallTooDeep { depth: *d });
+            }
+        }
+        for (fi, f) in p.funcs.iter().enumerate() {
+            let c = &cfgs[fi];
             let nedges: usize = c.blocks.iter().map(|b| b.succs.len()).sum();
             let nreach = c.reachable.iter().filter(|&&r| r).count();
             if want_cfg {

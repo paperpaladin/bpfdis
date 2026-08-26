@@ -209,6 +209,16 @@ MUTANTS = [
     ("elf: a big-endian object is read as little-endian", "src/elf.rs",
      "        if file[5] != 1 {", "        if false {"),
 
+    ("cfg: a cycle in the call graph is not reported", "src/cfg.rs",
+     "                if !cycles.contains(&(i, j)) {",
+     "                if false && !cycles.contains(&(i, j)) {"),
+    ("cfg: call depth counted from zero, so the limit is off by one",
+     "src/cfg.rs",
+     "        depth[i] = best + 1;", "        depth[i] = best;"),
+    ("cfg: the call-depth limit is the kernel's frame count plus one",
+     "src/cfg.rs",
+     "pub const MAX_CALL_DEPTH: usize = 8;", "pub const MAX_CALL_DEPTH: usize = 9;"),
+
     ("cfg: subprogram call targets not checked", "src/cfg.rs",
      "                if p.reloc_at(ins.idx).is_none()",
      "                if false && p.reloc_at(ins.idx).is_none()"),

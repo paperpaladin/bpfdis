@@ -31,6 +31,8 @@ EXPECTED = {
     "spin": "a loop",
     "runoff": "is not an exit or a jump",
     "badcall": "not the first instruction of a function in this section",
+    "selfcall": "call graph has a cycle",
+    "d0": "subprogram calls nest 9 deep",
 }
 
 

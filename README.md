@@ -265,14 +265,14 @@ that was already careful about the first.
 
 ## Mutation testing
 
-`make mutants` applies 64 named defects to the Rust source one at a time,
+`make mutants` applies 67 named defects to the Rust source one at a time,
 rebuilds, and runs the whole suite against each. It takes about half an hour
 and is not part of `make test`. The defects are in `t/mutate.py`, each with a
 sentence saying what it breaks, and a mutant whose pattern does not apply is
 reported rather than counted as killed, because a no-op edit passes every
 suite there is.
 
-All 64 are killed by a named assertion.
+All 67 are killed by a named assertion.
 
 Two were not, and what they were pointing at was worth more than the
 mutation score.
@@ -303,6 +303,18 @@ the suite never ran; a mutant that cannot be built proves nothing about the
 tests. The vector is annotated now and `flowcheck.py` kills it.
 
 ## What does not work
+
+**The subprogram call graph stops at the section boundary.** Recursion and
+nesting depth are computed over the calls that resolve inside one section. A
+call carrying a relocation goes to a symbol in another section, usually
+`.text`, and nothing follows it, so the depth reported is a lower bound. A
+program whose entry is in `socket/foo` and whose chain of subprograms lives
+in `.text` is measured as one frame deep.
+
+**The call-frame limit is a number written down, not measured.** `cfg.rs`
+says 8, from the kernel's `MAX_CALL_FRAMES`. There is no header here to
+read it from and no verifier to ask, so a kernel that changed it would make
+`t/corpus/badflow.s`'s nine-deep chain report a rejection that is not one.
 
 **The verifier's answer is not checked, anywhere.** Everything `-a` reports is
 a property bpfdis computed from the instruction stream. Whether the kernel
@@ -372,7 +384,7 @@ by the byte-corruption sweep.
 
 **The analysis fixtures are all cases somebody thought of.** `t/corpus/badflow.s`
 has one function per defect, written by hand, and the suite asserts that each
-of the seven findings is reached by one of them. A rejection the kernel makes
+of the nine findings is reached by one of them. A rejection the kernel makes
 that is not in that file is a rejection bpfdis does not look for, and there is
 no way to enumerate the set from here.
 

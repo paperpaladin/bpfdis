@@ -70,6 +70,11 @@ pub enum Problem {
     /// function in the same section. The verifier rejects these: a
     /// BPF_PSEUDO_CALL may only enter a subprogram at its entry.
     CallTargetBad { slot: usize, target: i64 },
+    /// A cycle in the subprogram call graph. The verifier has no stack to
+    /// unwind and rejects recursion outright, direct or mutual.
+    Recursion { from: String, to: String },
+    /// More nested subprogram calls than the verifier's frame limit.
+    CallTooDeep { depth: usize },
 }
 
 impl Problem {
@@ -84,7 +89,9 @@ impl Problem {
             | Problem::BadRegister { .. }
             | Problem::StackTooDeep { .. }
             | Problem::UninitRead { .. }
-            | Problem::CallTargetBad { .. } => "reject",
+            | Problem::CallTargetBad { .. }
+            | Problem::Recursion { .. }
+            | Problem::CallTooDeep { .. } => "reject",
             // A loop is fine on a 5.3 kernel or later if the verifier can
             // bound it, and fine never otherwise, so it is not a verdict.
             Problem::BackEdge { .. } => "note",
@@ -132,6 +139,21 @@ impl Problem {
             Problem::UninitRead { slot, reg } => format!(
                 "the instruction at slot {} reads r{}, which no path has written",
                 slot, reg
+            ),
+            Problem::Recursion { from, to } => {
+                if from == to {
+                    format!("the subprogram call graph has a cycle: {} calls itself", from)
+                } else {
+                    format!(
+                        "the subprogram call graph has a cycle: {} calls {}, which \
+                         reaches {} again",
+                        from, to, from
+                    )
+                }
+            }
+            Problem::CallTooDeep { depth } => format!(
+                "subprogram calls nest {} deep; the verifier allows {}",
+                depth, MAX_CALL_DEPTH
             ),
             Problem::CallTargetBad { slot, target } => format!(
                 "the subprogram call at slot {} targets slot {}, which is not the \
@@ -258,6 +280,72 @@ pub fn helper_name(n: i32) -> Option<&'static str> {
         return None;
     }
     HELPERS.get(n as usize).copied()
+}
+
+/// The verifier's limit on nested subprogram frames.
+///
+/// Written down from the kernel's MAX_CALL_FRAMES, which is not installed
+/// here and so has no oracle; the verifier that would settle it is out of
+/// reach on this machine. The README says so.
+pub const MAX_CALL_DEPTH: usize = 8;
+
+/// The subprogram call graph of one section, over indices into `p.funcs`.
+///
+/// Only calls whose target is resolved inside this section are edges. A
+/// call carrying a relocation goes to a symbol in another section, usually
+/// `.text`, and nothing here follows it, so the depth below is a lower
+/// bound rather than the figure the verifier would compute. That is the
+/// honest shape of it and the report says "at least".
+pub fn call_graph(p: &Prog, cfgs: &[Cfg]) -> (Vec<usize>, Vec<(usize, usize)>) {
+    let n = cfgs.len();
+    let start_of: Vec<usize> = p.funcs.iter().map(|f| f.start).collect();
+    let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, c) in cfgs.iter().enumerate() {
+        for (_slot, t) in &c.calls {
+            if let Some(j) = start_of.iter().position(|&s| s as i64 == *t) {
+                if !edges[i].contains(&j) {
+                    edges[i].push(j);
+                }
+            }
+        }
+    }
+    // Depth by memoised DFS. A node already on the stack is a cycle, and
+    // its depth is cut off there so the recursion terminates.
+    let mut depth = vec![0usize; n];
+    let mut colour = vec![0u8; n];
+    let mut cycles: Vec<(usize, usize)> = Vec::new();
+    fn walk(
+        i: usize,
+        edges: &[Vec<usize>],
+        colour: &mut Vec<u8>,
+        depth: &mut Vec<usize>,
+        cycles: &mut Vec<(usize, usize)>,
+    ) -> usize {
+        if colour[i] == 2 {
+            return depth[i];
+        }
+        if colour[i] == 1 {
+            return 0;
+        }
+        colour[i] = 1;
+        let mut best = 0;
+        for &j in &edges[i] {
+            if colour[j] == 1 {
+                if !cycles.contains(&(i, j)) {
+                    cycles.push((i, j));
+                }
+                continue;
+            }
+            best = best.max(walk(j, edges, colour, depth, cycles));
+        }
+        colour[i] = 2;
+        depth[i] = best + 1;
+        depth[i]
+    }
+    for i in 0..n {
+        walk(i, &edges, &mut colour, &mut depth, &mut cycles);
+    }
+    (depth, cycles)
 }
 
 pub fn jump_target(ins: &Insn) -> Option<i64> {
