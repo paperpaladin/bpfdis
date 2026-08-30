@@ -23,9 +23,14 @@ int caller(struct __sk_buff *skb)
     return (int)r;
 }
 
+/* Calls mix, so its own depth is 2 rather than 1. That matters: the
+ * relocation for `globalcall` names this symbol rather than the section,
+ * and the mutation that forgets to add the symbol's own offset lands on
+ * whatever sits at slot 0 of .text. While every function in .text was one
+ * frame deep that produced the same answer and the mutant survived. */
 __attribute__((noinline)) u64 global_sub(u64 a)
 {
-    return a + bpf_ktime_get_ns();
+    return mix(a, bpf_ktime_get_ns());
 }
 
 SEC("socket/globalcall")

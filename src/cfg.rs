@@ -289,28 +289,83 @@ pub fn helper_name(n: i32) -> Option<&'static str> {
 /// reach on this machine. The README says so.
 pub const MAX_CALL_DEPTH: usize = 8;
 
-/// The subprogram call graph of one section, over indices into `p.funcs`.
+/// The subprogram call graph of a whole object, keyed by (program, function).
 ///
-/// Only calls whose target is resolved inside this section are edges. A
-/// call carrying a relocation goes to a symbol in another section, usually
-/// `.text`, and nothing here follows it, so the depth below is a lower
-/// bound rather than the figure the verifier would compute. That is the
-/// honest shape of it and the report says "at least".
-pub fn call_graph(p: &Prog, cfgs: &[Cfg]) -> (Vec<usize>, Vec<(usize, usize)>) {
-    let n = cfgs.len();
-    let start_of: Vec<usize> = p.funcs.iter().map(|f| f.start).collect();
-    let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for (i, c) in cfgs.iter().enumerate() {
-        for (_slot, t) in &c.calls {
-            if let Some(j) = start_of.iter().position(|&s| s as i64 == *t) {
-                if !edges[i].contains(&j) {
-                    edges[i].push(j);
+/// A call inside a section resolves by offset. A call to another section
+/// carries a relocation, and the target is the symbol's own slot plus the
+/// offset left in `imm`: llvm writes `imm = target_slot_in_section - 1` so
+/// that the linker's `(S + A - P) / 8 - 1` comes out right, which means an
+/// unlinked object already says where the call goes. That was measured
+/// against t/corpus/calls.c, where `caller` calls `mix` at .text slot 0
+/// with `imm` -1 and `fold` at .text slot 6 with `imm` 5.
+///
+/// Returns the depth of each function and the edges that close a cycle.
+type FnKey = (usize, usize);
+
+pub fn call_graph(
+    e: &crate::elf::Elf,
+    progs: &[Prog],
+    all: &[Vec<Cfg>],
+) -> (Vec<(FnKey, usize)>, Vec<(FnKey, FnKey)>) {
+    // Where every function starts, so a target slot can be turned into a
+    // function. A call landing anywhere else is already reported by
+    // `collect` and contributes no edge.
+    let mut entry: Vec<((usize, usize), FnKey)> = Vec::new();
+    for (pi, p) in progs.iter().enumerate() {
+        for (fi, f) in p.funcs.iter().enumerate() {
+            entry.push(((p.sec_idx, f.start), (pi, fi)));
+        }
+    }
+    let find = |sec: usize, slot: usize| -> Option<FnKey> {
+        entry.iter().find(|(k, _)| *k == (sec, slot)).map(|(_, v)| *v)
+    };
+
+    let mut keys: Vec<FnKey> = Vec::new();
+    let mut edges: Vec<Vec<usize>> = Vec::new();
+    for (pi, p) in progs.iter().enumerate() {
+        for fi in 0..p.funcs.len() {
+            keys.push((pi, fi));
+            edges.push(Vec::new());
+        }
+    }
+    let index_of = |k: FnKey| keys.iter().position(|&x| x == k);
+
+    for (pi, p) in progs.iter().enumerate() {
+        for (fi, c) in all[pi].iter().enumerate() {
+            let me = match index_of((pi, fi)) {
+                Some(i) => i,
+                None => continue,
+            };
+            for (slot, t) in &c.calls {
+                let target = match p.reloc_at(*slot) {
+                    None => find(p.sec_idx, *t as usize),
+                    Some(r) => {
+                        // `imm` back out of the target the decoder computed.
+                        let imm = *t - (*slot as i64) - 1;
+                        e.syms
+                            .iter()
+                            .find(|y| y.idx as u32 == r.sym)
+                            .and_then(|y| {
+                                let base = (y.value / 8) as i64;
+                                let slot = base + imm + 1;
+                                if slot < 0 {
+                                    None
+                                } else {
+                                    find(y.shndx as usize, slot as usize)
+                                }
+                            })
+                    }
+                };
+                if let Some(k) = target.and_then(index_of) {
+                    if !edges[me].contains(&k) {
+                        edges[me].push(k);
+                    }
                 }
             }
         }
     }
-    // Depth by memoised DFS. A node already on the stack is a cycle, and
-    // its depth is cut off there so the recursion terminates.
+
+    let n = keys.len();
     let mut depth = vec![0usize; n];
     let mut colour = vec![0u8; n];
     let mut cycles: Vec<(usize, usize)> = Vec::new();
@@ -345,7 +400,10 @@ pub fn call_graph(p: &Prog, cfgs: &[Cfg]) -> (Vec<usize>, Vec<(usize, usize)>) {
     for i in 0..n {
         walk(i, &edges, &mut colour, &mut depth, &mut cycles);
     }
-    (depth, cycles)
+    (
+        keys.iter().copied().zip(depth).collect(),
+        cycles.into_iter().map(|(a, b)| (keys[a], keys[b])).collect(),
+    )
 }
 
 pub fn jump_target(ins: &Insn) -> Option<i64> {

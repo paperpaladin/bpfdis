@@ -264,35 +264,44 @@ fn main() -> ExitCode {
 /// `--strict` turns into an exit status.
 fn print_analysis(o: &mut String, e: &Elf, want_cfg: bool, want_report: bool) -> usize {
     let mut rejects = 0usize;
-    for p in prog::programs(e) {
-        // Every function first, then the call graph over them, because
-        // recursion and nesting depth are properties of the section rather
-        // than of any one function and cannot be seen one at a time.
-        let is_subprog = p.name == ".text";
-        let mut cfgs: Vec<cfg::Cfg> = p
-            .funcs
-            .iter()
-            .map(|f| {
-                let mut c = cfg::build(&p, f);
-                cfg::analyse(&mut c, &p, is_subprog);
-                c
-            })
-            .collect();
-        let (depth, cycles) = cfg::call_graph(&p, &cfgs);
-        for (a, b) in cycles {
-            let names = (p.funcs[a].name.clone(), p.funcs[b].name.clone());
-            cfgs[a].problems.push(cfg::Problem::Recursion {
-                from: names.0,
-                to: names.1,
-            });
+    // Every function in the object first, then the call graph over all of
+    // them. Recursion and nesting depth are properties of the whole object
+    // rather than of a function or even of a section: a program in
+    // `socket/foo` calls its subprograms in `.text` through a relocation,
+    // so a graph built one section at a time sees a chain of one.
+    let progs = prog::programs(e);
+    let mut all: Vec<Vec<cfg::Cfg>> = progs
+        .iter()
+        .map(|p| {
+            let is_subprog = p.name == ".text";
+            p.funcs
+                .iter()
+                .map(|f| {
+                    let mut c = cfg::build(p, f);
+                    cfg::analyse(&mut c, p, is_subprog);
+                    c
+                })
+                .collect()
+        })
+        .collect();
+    let (depth, cycles) = cfg::call_graph(e, &progs, &all);
+    for ((pa, fa), (pb, fb)) in cycles {
+        let names = (progs[pa].funcs[fa].name.clone(), progs[pb].funcs[fb].name.clone());
+        all[pa][fa].problems.push(cfg::Problem::Recursion {
+            from: names.0,
+            to: names.1,
+        });
+    }
+    let mut depth_of = std::collections::BTreeMap::new();
+    for ((pi, fi), d) in depth {
+        depth_of.insert((pi, fi), d);
+        if d > cfg::MAX_CALL_DEPTH {
+            all[pi][fi].problems.push(cfg::Problem::CallTooDeep { depth: d });
         }
-        for (i, d) in depth.iter().enumerate() {
-            if *d > cfg::MAX_CALL_DEPTH {
-                cfgs[i].problems.push(cfg::Problem::CallTooDeep { depth: *d });
-            }
-        }
+    }
+    for (pi, p) in progs.iter().enumerate() {
         for (fi, f) in p.funcs.iter().enumerate() {
-            let c = &cfgs[fi];
+            let c = &all[pi][fi];
             let nedges: usize = c.blocks.iter().map(|b| b.succs.len()).sum();
             let nreach = c.reachable.iter().filter(|&&r| r).count();
             if want_cfg {
@@ -342,7 +351,7 @@ fn print_analysis(o: &mut String, e: &Elf, want_cfg: bool, want_report: bool) ->
                 let _ = writeln!(
                     o,
                     "analysis {} {} insns={} blocks={} stack={} stack8={} loops={} \
-                     calls={} helpers={}",
+                     calls={} depth={} helpers={}",
                     p.name,
                     f.name,
                     c.insns_seen,
@@ -351,6 +360,7 @@ fn print_analysis(o: &mut String, e: &Elf, want_cfg: bool, want_report: bool) ->
                     (c.stack_bytes + 7) / 8 * 8,
                     loops,
                     c.calls.len(),
+                    depth_of.get(&(pi, fi)).copied().unwrap_or(1),
                     if helpers.is_empty() {
                         "-".to_string()
                     } else {
@@ -368,6 +378,7 @@ fn print_analysis(o: &mut String, e: &Elf, want_cfg: bool, want_report: bool) ->
     }
     rejects
 }
+
 
 /// Write the whole report in one go.
 ///

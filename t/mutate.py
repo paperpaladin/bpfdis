@@ -209,6 +209,14 @@ MUTANTS = [
     ("elf: a big-endian object is read as little-endian", "src/elf.rs",
      "        if file[5] != 1 {", "        if false {"),
 
+    ("cfg: a call across sections is not followed", "src/cfg.rs",
+     "                    None => find(p.sec_idx, *t as usize),",
+     "                    None => find(p.sec_idx, *t as usize),\n                    Some(_) if true => None,"),
+    ("cfg: a relocated call target misses the symbol's own offset",
+     "src/cfg.rs",
+     "                                let slot = base + imm + 1;",
+     "                                let slot = imm + 1;"),
+
     ("cfg: a cycle in the call graph is not reported", "src/cfg.rs",
      "                if !cycles.contains(&(i, j)) {",
      "                if false && !cycles.contains(&(i, j)) {"),

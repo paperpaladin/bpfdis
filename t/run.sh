@@ -193,6 +193,33 @@ else
     no "the assembler round-trip rule never fired"
 fi
 
+# ---------------- subprogram calls that cross a section (hand-read fixture)
+#
+# A program calls its subprograms in `.text` through a relocation, and the
+# target is the symbol's slot plus the offset llvm left in `imm`. Nothing
+# installed here resolves that for an unlinked object, so the expected
+# depths below are read off t/corpus/calls.c by hand: caller calls mix and
+# fold, fold calls mix, globalcall calls global_sub. Weaker than the rest of
+# this file and written out here rather than hidden in a comparison.
+#
+# Without the relocation path every one of these is 1, which is also what a
+# missing edge looks like, so the numbers are what prove the path ran.
+note "subprogram call depth across sections (hand-read, no oracle)"
+dchk() {
+    got=$("$BIN" -a "$W/obj/calls.v3.O2.o" 2>/dev/null \
+          | sed -n "s/^analysis [^ ]* $1 .* depth=\([0-9]*\) .*/\1/p")
+    if [ "${got:-}" = "$2" ]; then
+        ok "$1 is $2 call frames deep"
+    else
+        no "$1 is ${got:-missing} call frames deep, expected $2"
+    fi
+}
+dchk caller 3
+dchk globalcall 3
+dchk fold 2
+dchk mix 1
+dchk global_sub 2
+
 # ------------- the oversized-buffer rule, in the form Rust leaves open
 #
 # `make overread` covers the one place where a buffer longer than its data

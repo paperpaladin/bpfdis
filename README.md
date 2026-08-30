@@ -127,7 +127,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 82 passed, 0 failed |
+| assertions | 87 passed, 0 failed |
 | corpus objects built | 86 from 16 sources |
 | instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |
@@ -265,14 +265,14 @@ that was already careful about the first.
 
 ## Mutation testing
 
-`make mutants` applies 67 named defects to the Rust source one at a time,
+`make mutants` applies 69 named defects to the Rust source one at a time,
 rebuilds, and runs the whole suite against each. It takes about half an hour
 and is not part of `make test`. The defects are in `t/mutate.py`, each with a
 sentence saying what it breaks, and a mutant whose pattern does not apply is
 reported rather than counted as killed, because a no-op edit passes every
 suite there is.
 
-All 67 are killed by a named assertion.
+All 69 are killed by a named assertion.
 
 Two were not, and what they were pointing at was worth more than the
 mutation score.
@@ -304,12 +304,14 @@ tests. The vector is annotated now and `flowcheck.py` kills it.
 
 ## What does not work
 
-**The subprogram call graph stops at the section boundary.** Recursion and
-nesting depth are computed over the calls that resolve inside one section. A
-call carrying a relocation goes to a symbol in another section, usually
-`.text`, and nothing follows it, so the depth reported is a lower bound. A
-program whose entry is in `socket/foo` and whose chain of subprograms lives
-in `.text` is measured as one frame deep.
+**The call depths have no oracle.** The graph follows calls across
+sections, through the relocation and the offset llvm leaves in `imm`, so
+`caller` in `t/corpus/calls.c` is three frames deep and not one. Nothing
+installed resolves that for an unlinked object, so the five expected depths
+in the suite are read off the C source by hand and are written out in
+`t/run.sh` rather than buried in a comparison. They earn their place: with
+the relocation path removed every one of them is 1, which is also what a
+missing edge looks like.
 
 **The call-frame limit is a number written down, not measured.** `cfg.rs`
 says 8, from the kernel's `MAX_CALL_FRAMES`. There is no header here to

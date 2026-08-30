@@ -307,8 +307,11 @@ Ranked by how little of it we control.
 - [x] The subprogram call graph: recursion, and nesting depth
       done: cycles and depth over the calls that resolve inside a section,
       with two fixtures in t/corpus/badflow.s, a function that calls itself
-      and a chain of nine. Cross-section calls are not followed, so the
-      depth is a lower bound and the README says so. The limit of 8 is the
+      and a chain of nine. Calls that cross a section are followed through
+      their relocation: llvm writes imm as the target slot minus one so the
+      linker's (S + A - P) / 8 - 1 comes out right, which means an unlinked
+      object already says where the call goes. Five depths are asserted by
+      hand off t/corpus/calls.c, because nothing installed resolves this. The limit of 8 is the
       kernel's MAX_CALL_FRAMES written down, with no header here to read it
       from and no verifier to ask.
       why: the verifier rejects recursion outright and caps nesting, and
