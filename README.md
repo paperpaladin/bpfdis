@@ -127,7 +127,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 87 passed, 0 failed |
+| assertions | 90 passed, 0 failed |
 | corpus objects built | 86 from 16 sources |
 | instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |
@@ -151,6 +151,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 | helper, program, map and attach type names against bpftool | 335, 0 differ |
 | helper calls named in the corpus | 128, 0 differ |
 | malformed inputs | 16,475 run, 0 crashed, 0 hung |
+| malformed text on the `-x` entry point | 5,015 lines, 0 crashed |
 | of those, aimed at .BTF and .BTF.ext | 10,912, of which 321 refused |
 
 Refusals are counted apart from disagreements everywhere, because the two need

@@ -645,6 +645,79 @@ for n in corrupt shrink btf; do
     fi
 done
 
+# ------------------------------- hostile text on the raw-decoding entry point
+#
+# The opcode sweep feeds -x 24279 well-formed lines. What it never feeds it
+# is malformed TEXT, and -x is the one entry point whose input is not an ELF
+# file: it splits a line on commas and whitespace, strips an 0x prefix and
+# parses each token as a byte. Every refusal there has to be a BAD line and
+# an exit of 0, never a panic and never a hang.
+note "hostile input on the hex entry point"
+hexbad=0
+hexruns=0
+hexrefused=0
+while IFS= read -r line; do
+    hexruns=$((hexruns+1))
+    out=$(printf '%s\n' "$line" | timeout 10 "$BIN" -x 2>/dev/null)
+    rc=$?
+    if [ $rc -ne 0 ]; then
+        hexbad=$((hexbad+1))
+        [ $hexbad -le 5 ] && echo "     exit $rc on: $line"
+    fi
+    case "$out" in *BAD*) hexrefused=$((hexrefused+1)) ;; esac
+done <<'HEXEOF'
+b
+0x
+0xzz
+b7 00 00 00 00 00 00
+b7 00 00 00 00 00 00 00 00
+,,,,,,,,
+0x0x0x0x 0x0x 00 00 00 00 00 00
+18 01 00 00 00 00 00 00
+18 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+-1 -1 -1 -1 -1 -1 -1 -1
+100 00 00 00 00 00 00 00
+b7,00,00,00,00,00,00,00
+   b7	00   00 00 00 00 00 00
+0xb7 0x00 0X00 0x00 0x00 0x00 0x00 0x00
+ffffffffffffffffffffffffffffffff
+HEXEOF
+if [ $hexbad -eq 0 ]; then
+    ok "all $hexruns malformed hex lines exited 0, none crashed or hung"
+else
+    no "$hexbad of $hexruns malformed hex lines exited non-zero"
+fi
+# Two-sided: some of those lines are well formed and must decode, or this
+# is a sweep that only proves the refusal path exists.
+if [ $hexrefused -gt 0 ] && [ $hexrefused -lt $hexruns ]; then
+    ok "the hex sweep is two-sided ($hexrefused refused of $hexruns)"
+else
+    no "the hex sweep refused $hexrefused of $hexruns; it is one-sided"
+fi
+# And five thousand generated lines in one go, which the 15 above cannot
+# reach: random separators, random prefixes, random token counts and
+# tokens that are hex, nearly hex, or not hex at all. One invocation,
+# because the assertion is that nothing crashes and a crash on line 3000
+# shows up as a nonzero exit either way.
+python3 - <<'GENEOF' > "$W/hexfuzz.txt"
+import random
+r = random.Random(20261021)
+toks = ["00", "ff", "7f", "b7", "18", "zz", "0x", "0xb7", "-1", "100", "",
+        "g0", "0X18", "FF", "0", "000"]
+seps = [" ", ",", "\t", "  ", ", ", " ,"]
+for _ in range(5000):
+    n = r.randrange(0, 20)
+    print(r.choice(seps).join(r.choice(toks) for _ in range(n)))
+GENEOF
+hout=$(timeout 60 "$BIN" -x < "$W/hexfuzz.txt" 2>/dev/null)
+hrc=$?
+hlines=$(printf '%s\n' "$hout" | grep -c . )
+if [ $hrc -eq 0 ]; then
+    ok "5000 generated hex lines exited 0 with $hlines lines of output"
+else
+    no "the generated hex sweep exited $hrc"
+fi
+
 # ----------------------------------------------------------------- exit codes
 note "exit status"
 "$BIN" >/dev/null 2>&1; [ $? -eq 2 ] && ok "no argument is a usage error (2)" \
