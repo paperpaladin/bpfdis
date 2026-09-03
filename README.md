@@ -62,7 +62,7 @@ makes it the authority for the three name tables in `src`.
 and calls `bpf_object__open_file`. It is the authority for the map table, the
 program list, and the program type each section name implies. Parsing needs no
 privilege; it is `bpf_object__load` that does, and the probe never calls it. There are no
-libbpf headers installed, so the seventeen entry points are declared from the
+libbpf headers installed, so the twenty entry points are declared from the
 published API and resolved by name, and a missing symbol exits 2 rather than
 producing an empty comparison.
 
@@ -127,8 +127,8 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 90 passed, 0 failed |
-| corpus objects built | 86 from 16 sources |
+| assertions | 93 passed, 0 failed |
+| corpus objects built | 88 from 18 sources |
 | instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |
 | of those, refused by both | 0 |
@@ -140,7 +140,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 | encodings swept against llvm-mc | 24,279 |
 | ELF records against readelf | 2,282 sections, 1,632 symbols, 8,955 relocations, 0 differ |
 | BTF against bpftool | 2,181 type records, 4,401 lines, 0 differ, all 19 kinds reached |
-| maps and programs against libbpf | 88 maps, 282 programs, 0 differ |
+| maps and programs against libbpf | 104 maps, 282 programs, 0 differ |
 | program types against libbpf | all 91 section-name rows reached, 0 differ |
 | .BTF.ext func_info against bpftool and readelf | 347 records, 0 differ |
 | .BTF.ext line_info against DWARF | 2,047 records, 0 differ |
@@ -266,14 +266,14 @@ that was already careful about the first.
 
 ## Mutation testing
 
-`make mutants` applies 69 named defects to the Rust source one at a time,
+`make mutants` applies 72 named defects to the Rust source one at a time,
 rebuilds, and runs the whole suite against each. It takes about half an hour
 and is not part of `make test`. The defects are in `t/mutate.py`, each with a
 sentence saying what it breaks, and a mutant whose pattern does not apply is
 reported rather than counted as killed, because a no-op edit passes every
 suite there is.
 
-All 69 are killed by a named assertion.
+All 72 are killed by a named assertion.
 
 Two were not, and what they were pointing at was worth more than the
 mutation score.

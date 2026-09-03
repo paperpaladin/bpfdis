@@ -561,6 +561,28 @@ else
     no "libbpf_probe did not build"; cat "$W/lp.err"
 fi
 
+# ---------------------------- a pinning value libbpf refuses the object for
+#
+# METHOD's refuse() shape: the oracle rejects the input and bpfdis must say
+# something about it rather than reading on quietly. libbpf fails
+# bpf_object__open with "invalid pinning value 2", so it contributes nothing
+# else about this object, and what bpfdis says has to be asserted here.
+note "a map pinning value outside the two libbpf defines"
+pin=$("$BIN" -m "$W/obj/oddpin.v3.O2.o" 2>&1)
+case "$pin" in
+    *"pinning is 2"*) ok "pinning 2 is reported as outside what libbpf defines" ;;
+    *) no "a pinning value of 2 was read without comment: $pin" ;;
+esac
+case "$pin" in
+    *"pin=-"*) ok "and the map is not reported as pinned anywhere" ;;
+    *) no "a map with pinning 2 was given a pin path: $pin" ;;
+esac
+if "$W/lp" "$W/obj/oddpin.v3.O2.o" >/dev/null 2>&1; then
+    no "libbpf opened the object with pinning 2; the refusal needs re-measuring"
+else
+    ok "libbpf refuses that object outright, which is why the two lines above exist"
+fi
+
 # ----------------------- the control-flow graph, against a second one in t/
 note "cfg: a second graph built from llvm-objdump's text, not from our decode"
 cout=$(python3 "$HERE/cfgcmp.py" "$BIN" "$W"/obj/*.o)

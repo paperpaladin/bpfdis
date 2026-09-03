@@ -9,11 +9,14 @@ mkdir -p "$OUT"
 built=0
 for src in "$HERE"/corpus/*.c; do
     b=$(basename "$src" .c)
+    # Two sources are built once rather than at every -mcpu and -O level.
     # sections.c is 91 copies of the same two instructions, one per row of
-    # the section-name table. Building it at every -mcpu and -O level would
-    # add 1456 identical instructions to the disassembly comparison and make
-    # that number look like variety it does not have, so it is built once.
-    if [ "$b" = sections ]; then
+    # the section-name table, and eight copies of that would add 1456
+    # identical instructions to the disassembly comparison and make the
+    # number look like variety it does not have. oddpin.c is an object
+    # libbpf refuses outright, so every copy is a copy of nothing it can
+    # compare.
+    if [ "$b" = sections ] || [ "$b" = oddpin ]; then
         o="$OUT/$b.v3.O2.o"
         clang -target bpf -mcpu=v3 -O2 -g -c "$src" -o "$o" && built=$((built+1))
         continue

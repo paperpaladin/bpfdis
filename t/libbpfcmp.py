@@ -30,7 +30,8 @@ import sys
 MAXSHOW = 20
 MAPRE = re.compile(
     r"^map (\S+) type=(\d+) key_size=(\d+) value_size=(\d+) "
-    r"max_entries=(\d+) flags=(\d+) btf_key=(\d+) btf_value=(\d+)$"
+    r"max_entries=(\d+) flags=(\d+) btf_key=(\d+) btf_value=(\d+) "
+    r"extra=(\d+) numa=(\d+) pin=(\S+)$"
 )
 PROGRE = re.compile(
     r"^prog (\S+) sec=(\S+) type=(-?\d+) eat=(-?\d+) insns=(\d+)$")
@@ -40,7 +41,7 @@ FIELD = re.compile(r"\.(\w+)\s*=\s*([A-Za-z_0-9]+)")
 OURMAP = re.compile(
     r"^map (\S+) source=(\S+) type=(\d+) \(\S+\) key_size=(\d+) "
     r"value_size=(\d+) max_entries=(\d+) flags=(\d+) btf_key=(\d+) "
-    r"btf_value=(\d+)$"
+    r"btf_value=(\d+) extra=(\d+) numa=(\d+) pin=(\S+)$"
 )
 OURPROG = re.compile(
     r"^prog (\S+) sec=(\S+) type=(\d+) \(\S+\) attach=(-?\d+) \(\S+\) "
@@ -154,7 +155,9 @@ def main():
             m = MAPRE.match(l)
             if m:
                 want_maps.append(
-                    (core_name(m.group(1)),) + tuple(int(x) for x in m.groups()[1:])
+                    (core_name(m.group(1)),)
+                    + tuple(int(x) for x in m.groups()[1:10])
+                    + (m.group(11),)
                 )
                 continue
             m = PROGRE.match(l)
@@ -168,7 +171,8 @@ def main():
                 got_maps.append(
                     (m.group(1), int(m.group(3)), int(m.group(4)),
                      int(m.group(5)), int(m.group(6)), int(m.group(7)),
-                     int(m.group(8)), int(m.group(9)))
+                     int(m.group(8)), int(m.group(9)), int(m.group(10)),
+                     int(m.group(11)), m.group(12))
                 )
                 continue
             m = OURPROG.match(l)

@@ -44,6 +44,14 @@ pub struct MapDef {
     /// `key` gives a size and no type.
     pub btf_key: u32,
     pub btf_value: u32,
+    /// `map_extra`, which the kernel reads differently per map type: the
+    /// number of hashes for a bloom filter, the index mask for an arena.
+    pub map_extra: u64,
+    pub numa_node: u32,
+    /// Where a loader would pin this map, or "-" for not pinned. The path
+    /// is libbpf's default root and the map's own name; nothing in the
+    /// object says "/sys/fs/bpf", only that `pinning` is 1.
+    pub pin: String,
     pub notes: Vec<String>,
 }
 
@@ -211,6 +219,31 @@ fn btf_maps(b: &Btf, out: &mut Vec<MapDef>) {
                     Some(v) => m.flags = v,
                     None => m.notes.push("map_flags is not a pointer to an array".into()),
                 },
+                "map_extra" => {
+                    if let Some(v) = arr_len {
+                        m.map_extra = v as u64;
+                    }
+                }
+                "numa_node" => {
+                    if let Some(v) = arr_len {
+                        m.numa_node = v;
+                    }
+                }
+                "pinning" => {
+                    // 0 is LIBBPF_PIN_NONE and 1 is LIBBPF_PIN_BY_NAME,
+                    // which pins under libbpf's default root. Anything
+                    // else makes libbpf refuse the whole object, so it is
+                    // noted rather than treated as pinning.
+                    match arr_len {
+                        Some(0) | None => {}
+                        Some(1) => m.pin = format!("/sys/fs/bpf/{}", var.name),
+                        Some(v) => m.notes.push(format!(
+                            "pinning is {}; libbpf defines 0 and 1 and refuses \
+                             the object for anything else",
+                            v
+                        )),
+                    }
+                }
                 "key_size" => {
                     if let Some(v) = arr_len {
                         m.key_size = v;
@@ -313,6 +346,9 @@ fn section_maps(e: &Elf, btf: Option<&Btf>, out: &mut Vec<MapDef>) {
             flags,
             btf_key: 0,
             btf_value: datasec_id.unwrap_or(0),
+            map_extra: 0,
+            numa_node: 0,
+            pin: String::new(),
             notes: Vec::new(),
         });
     }

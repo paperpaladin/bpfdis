@@ -82,3 +82,24 @@ int btfmaps2(struct __sk_buff *skb)
     void *c = bpf_map_lookup_elem(&outer, &k);
     return (a != 0) + (b != 0) + (c != 0);
 }
+
+/* The three attributes a loader reads that are not sizes: map_extra, which
+ * the kernel interprets per map type (the number of hashes for a bloom
+ * filter), the NUMA node to allocate on, and pinning, which is the only one
+ * that turns into a path rather than a number. */
+#define BPF_MAP_TYPE_BLOOM_FILTER 30
+struct {
+    int (*type)[BPF_MAP_TYPE_BLOOM_FILTER];
+    int (*max_entries)[100];
+    int (*map_extra)[5];
+    u32 *value;
+} bloom SEC(".maps");
+
+struct {
+    int (*type)[BPF_MAP_TYPE_HASH];
+    int (*max_entries)[4];
+    int (*numa_node)[1];
+    int (*pinning)[1];
+    u32 *key;
+    u32 *value;
+} pinned SEC(".maps");
