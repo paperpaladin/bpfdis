@@ -193,6 +193,11 @@ MUTANTS = [
      "    (\"cgroup/connect6\", true, 18, \"CGROUP_SOCK_ADDR\", 11),",
      "    (\"cgroup/connect6\", true, 18, \"CGROUP_SOCK_ADDR\", 10),"),
 
+    ("btfext: a missing .BTF is a warning rather than a refusal",
+     "src/main.rs",
+     "                eprintln!(\"bpfdis: {}: .BTF.ext with no .BTF: its strings are in .BTF\", path);\n                emit(&o);\n                return ExitCode::from(1);",
+     "                eprintln!(\"bpfdis: {}: .BTF.ext with no .BTF: its strings are in .BTF\", path);"),
+
     ("btfext: insn_off read as an instruction index, not a byte offset",
      "src/btfext.rs",
      "                    \"line_info {} slot={} {}:{}:{}\",\n"

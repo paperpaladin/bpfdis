@@ -583,6 +583,38 @@ else
     ok "libbpf refuses that object outright, which is why the two lines above exist"
 fi
 
+# ------------------------------------- .BTF.ext whose strings are not there
+#
+# Every string in .BTF.ext is an offset into .BTF's string table, so the two
+# sections are one input in two pieces. An object with the second and not
+# the first is a refusal, not an output full of empty names, and llvm-objcopy
+# will make one in a line.
+note ".BTF.ext with its string table removed"
+if llvm-objcopy --remove-section=.BTF "$W/obj/flow.v3.O2.o" "$W/nobtf.o" 2>/dev/null; then
+    msg=$("$BIN" -e "$W/nobtf.o" 2>&1 >/dev/null)
+    rc=$?
+    case "$rc:$msg" in
+        1:*".BTF.ext with no .BTF"*)
+            ok "a .BTF.ext with no .BTF exits 1 and says which section is missing" ;;
+        *)
+            no "a .BTF.ext with no .BTF exited $rc saying: $msg" ;;
+    esac
+    # And the other way round, which must still work: .BTF alone is a
+    # complete input and -b has to read it.
+    if llvm-objcopy --remove-section=.BTF.ext "$W/obj/flow.v3.O2.o" "$W/noext.o" 2>/dev/null; then
+        n=$("$BIN" -b "$W/noext.o" 2>/dev/null | grep -c .)
+        if [ "${n:-0}" -gt 10 ]; then
+            ok ".BTF without .BTF.ext still dumps $n lines of types"
+        else
+            no ".BTF without .BTF.ext produced ${n:-0} lines"
+        fi
+    else
+        no "llvm-objcopy could not remove .BTF.ext"
+    fi
+else
+    no "llvm-objcopy could not remove .BTF; the paired-section case is untested"
+fi
+
 # ----------------------- the control-flow graph, against a second one in t/
 note "cfg: a second graph built from llvm-objdump's text, not from our decode"
 cout=$(python3 "$HERE/cfgcmp.py" "$BIN" "$W"/obj/*.o)

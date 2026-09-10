@@ -127,7 +127,7 @@ Measured on 20 October 2026. `make test` prints all of them.
 
 | what | measured |
 |---|---|
-| assertions | 93 passed, 0 failed |
+| assertions | 95 passed, 0 failed |
 | corpus objects built | 88 from 18 sources |
 | instructions against llvm-objdump | 3,837 compared, 3,837 same, 0 differ |
 | of those, bpfdis refused and llvm-objdump decoded | 0 |
@@ -266,14 +266,14 @@ that was already careful about the first.
 
 ## Mutation testing
 
-`make mutants` applies 72 named defects to the Rust source one at a time,
+`make mutants` applies 73 named defects to the Rust source one at a time,
 rebuilds, and runs the whole suite against each. It takes about half an hour
 and is not part of `make test`. The defects are in `t/mutate.py`, each with a
 sentence saying what it breaks, and a mutant whose pattern does not apply is
 reported rather than counted as killed, because a no-op edit passes every
 suite there is.
 
-All 72 are killed by a named assertion.
+All 73 are killed by a named assertion.
 
 Two were not, and what they were pointing at was worth more than the
 mutation score.
