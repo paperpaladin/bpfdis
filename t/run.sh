@@ -48,6 +48,34 @@ export PYTHONDONTWRITEBYTECODE=1
 W=$(mktemp -d) || exit 2
 trap 'rm -rf "$W"' EXIT INT TERM
 
+# ------------------------------------------- which tools produced the numbers
+#
+# Every figure this suite prints is a figure about one toolchain. The README
+# says several of the measured behaviours are version-specific, and which
+# atomic encodings LLVM's disassembler refuses is one of them, so the
+# versions belong in the output that produces the numbers rather than in a
+# sentence somebody has to remember to update.
+note "oracle versions"
+echo "     clang        $(clang --version | sed -n '1s/.*version //p')"
+echo "     llvm-objdump $(llvm-objdump --version | sed -n 's/.*LLVM version //p')"
+echo "     llvm-mc      $(llvm-mc --version | sed -n 's/.*LLVM version //p')"
+echo "     readelf      $(readelf --version | sed -n '1s/.* //p')"
+if [ -x /usr/sbin/bpftool ]; then
+    echo "     bpftool      $(/usr/sbin/bpftool version 2>/dev/null | sed -n '1s/^bpftool //p') with libbpf $(/usr/sbin/bpftool version 2>/dev/null | sed -n '2s/^using libbpf //p')"
+fi
+echo "     kernel       $(uname -r)"
+# llvm-mc and llvm-objdump share a backend and the suite treats one as a
+# check on the other in places, so a mismatched pair would make a
+# disagreement between them mean something different from what is written
+# down about it.
+a=$(llvm-objdump --version | sed -n 's/.*LLVM version //p')
+b=$(llvm-mc --version | sed -n 's/.*LLVM version //p')
+if [ -n "$a" ] && [ "$a" = "$b" ]; then
+    ok "llvm-objdump and llvm-mc are both LLVM $a"
+else
+    no "llvm-objdump is LLVM ${a:-?} and llvm-mc is LLVM ${b:-?}"
+fi
+
 # ---------------------------------------------------------------- the corpus
 note "corpus"
 n=$(sh "$HERE/mkcorpus.sh" "$W/obj")
