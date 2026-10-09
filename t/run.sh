@@ -800,6 +800,40 @@ else
     no "the generated hex sweep exited $hrc"
 fi
 
+# ------------------------------------------------------------ corpus coverage
+# Every comparison above asserts it was non-vacuous in its own terms: so many
+# instructions, so many records. None of them says which KINDS of thing were
+# there, and four hundred copies of `r0 = 0` would satisfy all of them while
+# reaching one opcode.
+#
+# The floors are the counts measured on clang 19.1.7 the day this was written.
+# They are a regression alarm, not a completeness claim: they go red when a
+# corpus source stops being compiled or a generator stops emitting something,
+# which is the failure that otherwise shows up as a suite that still passes
+# while testing less. If a newer clang legitimately emits fewer of something,
+# the right response is to look and then move the floor deliberately.
+note "corpus coverage"
+cov=$(python3 "$HERE/coverage.py" "$BIN" "$W"/obj/*.o) || cov=""
+if [ -z "$cov" ]; then
+    no "coverage.py did not run"
+else
+    echo "$cov" | sed -n 's/^  /    /p'
+    for pair in opcodes:81 section_types:7 reloc_types:5 map_types:5 \
+                map_sources:3 prog_types:33 attach_types:50 helpers:8 \
+                core_kinds:13; do
+        k=${pair%%:*}
+        floor=${pair##*:}
+        got=$(echo "$cov" | sed -n "s/^cov_$k=//p")
+        if [ -z "$got" ]; then
+            no "coverage did not report $k"
+        elif [ "$got" -lt "$floor" ]; then
+            no "the corpus holds $got distinct $k, was $floor: something stopped being generated"
+        else
+            ok "corpus holds $got distinct $k (floor $floor)"
+        fi
+    done
+fi
+
 # ----------------------------------------------------------------- exit codes
 note "exit status"
 "$BIN" >/dev/null 2>&1; [ $? -eq 2 ] && ok "no argument is a usage error (2)" \
