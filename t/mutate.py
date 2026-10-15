@@ -112,9 +112,16 @@ MUTANTS = [
      "src/maps.rs",
      "                        Some(1) => m.pin = format!(\"/sys/fs/bpf/{}\", var.name),",
      "                        Some(_) => m.pin = format!(\"/sys/fs/bpf/{}\", var.name),"),
+    # Re-quoted against the match arm. The pinning handling moved into a
+    # `match arr_len` and this entry still quoted the old if-statement form,
+    # trailing semicolon and all, so it matched nothing and tested nothing.
+    # The entry above it survived the same refactor only because it quotes
+    # the arm rather than the statement. A dead entry is not a failing test,
+    # it is an absent one, and the published claim that all 73 are killed
+    # covered 72.
     ("maps: a pinned map takes the section's name, not its own", "src/maps.rs",
-     "                        m.pin = format!(\"/sys/fs/bpf/{}\", var.name);",
-     "                        m.pin = \"/sys/fs/bpf/.maps\".to_string();"),
+     "                        Some(1) => m.pin = format!(\"/sys/fs/bpf/{}\", var.name),",
+     "                        Some(1) => m.pin = \"/sys/fs/bpf/.maps\".to_string(),"),
     ("maps: map_extra and numa_node read from each other", "src/maps.rs",
      "                \"map_extra\" => {\n                    if let Some(v) = arr_len {\n                        m.map_extra = v as u64;",
      "                \"map_extra\" => {\n                    if let Some(v) = arr_len {\n                        m.numa_node = v;"),
@@ -280,7 +287,42 @@ def run_suite():
     return killed, (fails[0][5:].strip() if fails else "exit %d" % p.returncode), last[0]
 
 
+def check():
+    """Every entry's pattern still appears exactly once in the file it names.
+
+    The sweep itself reports a pattern that no longer applies, and counts it
+    apart from a survivor, which is right. What it cannot do is be run: it
+    takes about an hour, so it is not in `make test`, and between runs an
+    entry can rot without anything saying so. One had, since the pinning
+    refactor, and the README went on claiming all 73 were killed by a named
+    assertion when the real figure was 72.
+
+    This asks the same question about every entry in well under a second,
+    which is cheap enough for the suite. It does not replace the sweep; it
+    stops the sweep's table from decaying unnoticed between sweeps.
+    """
+    src, bad = {}, []
+    for name, rel, old, _new in MUTANTS:
+        if rel not in src:
+            src[rel] = open(os.path.join(ROOT, rel)).read()
+        n = src[rel].count(old)
+        if n != 1:
+            bad.append((name, rel, n, old.strip()[:60]))
+    for name, rel, n, snip in bad:
+        print("STALE %-50s %s: appears %d times, not once: %s"
+              % (name, rel, n, snip))
+    if bad:
+        print("mutants: %d of %d entries no longer apply to the source"
+              % (len(bad), len(MUTANTS)))
+        return 1
+    print("mutants: %d entries, every pattern applies exactly once"
+          % len(MUTANTS))
+    return 0
+
+
 def main():
+    if "--check" in sys.argv:
+        return check()
     only = sys.argv[1] if len(sys.argv) > 1 else None
     killed = survived = notapplied = 0
     lines = []

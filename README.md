@@ -273,7 +273,18 @@ sentence saying what it breaks, and a mutant whose pattern does not apply is
 reported rather than counted as killed, because a no-op edit passes every
 suite there is.
 
-All 73 are killed by a named assertion.
+All 73 are killed by a named assertion. That sentence was true when it was
+written and then quietly stopped being true: the pinning handling was
+refactored into a `match` arm, the entry quoting the old if-statement form
+matched nothing, and the real figure was 72 of 73 for as long as nobody
+re-ran the sweep. A dead entry is not a failing test, it is an absent one,
+and the sweep's own `NOT-APPLIED` bucket could not report it because the
+sweep takes an hour and was not being run.
+
+`make test` now runs `t/mutate.py --check`, which asks only whether every
+pattern still appears exactly once in the file it names. That takes under a
+second and goes red on a refactor, which is the failure the hour-long sweep
+cannot be present for.
 
 Two were not, and what they were pointing at was worth more than the
 mutation score.

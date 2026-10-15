@@ -834,6 +834,21 @@ else
     done
 fi
 
+# ------------------------------------------------------- the mutation table
+# The sweep in t/mutate.py takes about an hour, so it is not run here. What
+# is checked here is that its table still applies to the source: an entry
+# whose pattern has been refactored away is neither killed nor surviving, it
+# simply does nothing, and the score is then over a smaller table than it
+# names. One entry had rotted since the pinning refactor while the README
+# claimed all 73 were killed.
+note "the mutation table still applies to the source"
+if mout=$(python3 "$HERE/mutate.py" --check 2>&1); then
+    ok "$mout"
+else
+    no "a mutation pattern no longer applies, so the table tests less than it says"
+    echo "$mout" | sed 's/^/     /'
+fi
+
 # ----------------------------------------------------------------- exit codes
 note "exit status"
 "$BIN" >/dev/null 2>&1; [ $? -eq 2 ] && ok "no argument is a usage error (2)" \
