@@ -267,7 +267,17 @@ MUTANTS = [
 
 
 def run_suite():
-    p = subprocess.run(["make", "test"], cwd=ROOT, capture_output=True, text=True)
+    # BPFDIS_MUTATION_RUN tells t/run.sh to skip its staleness check, which
+    # would otherwise fail on every single mutant and make every mutant look
+    # killed. A mutation IS the replacement of one of the exact patterns that
+    # check verifies, so during a sweep the check is guaranteed to report the
+    # mutated entry as stale, the suite goes red for that reason alone, and a
+    # red suite is what this function reads as "the mutant was caught". extv
+    # ran two forty-minute sweeps that way and both reported every mutant
+    # killed, having established only that the mutation had been applied.
+    env = dict(os.environ, BPFDIS_MUTATION_RUN="1")
+    p = subprocess.run(["make", "test"], cwd=ROOT, capture_output=True,
+                       text=True, env=env)
     fails = [l for l in p.stdout.splitlines() if l.startswith("FAIL")]
     last = [l for l in p.stdout.splitlines() if re.match(r"^\d+ passed, \d+ failed$", l)]
     if p.returncode != 0 and not last:

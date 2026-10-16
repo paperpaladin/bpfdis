@@ -841,8 +841,14 @@ fi
 # simply does nothing, and the score is then over a smaller table than it
 # names. One entry had rotted since the pinning refactor while the README
 # claimed all 73 were killed.
+# Skipped, loudly and counted, while a mutant is in the tree. A mutation
+# replaces one of the very patterns this checks, so it would report stale on
+# every mutant and turn the whole sweep into a tautology: every mutant would
+# fail the suite for this reason and be scored as killed.
 note "the mutation table still applies to the source"
-if mout=$(python3 "$HERE/mutate.py" --check 2>&1); then
+if [ -n "${BPFDIS_MUTATION_RUN:-}" ]; then
+    ok "skipped: a mutation is applied, so a stale pattern is expected"
+elif mout=$(python3 "$HERE/mutate.py" --check 2>&1); then
     ok "$mout"
 else
     no "a mutation pattern no longer applies, so the table tests less than it says"
